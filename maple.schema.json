@@ -3,36 +3,82 @@
   "$id": "https://maple.dev/schema/0.1/maple.schema.json",
   "title": "MAPLE app manifest",
   "type": "object",
-  "required": ["maple", "name", "maker", "database", "auth", "mcp", "loop", "email"],
+  "required": [
+    "maple",
+    "name",
+    "maker"
+  ],
   "additionalProperties": false,
   "properties": {
-    "$schema": { "type": "string" },
-    "maple": { "const": "0.1", "description": "Spec version." },
-    "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,38}$", "description": "App slug." },
-    "title": { "type": "string", "description": "Name people see, e.g. in emails and the browser tab." },
+    "$schema": {
+      "type": "string"
+    },
+    "maple": {
+      "const": "0.1",
+      "description": "Spec version."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,38}$",
+      "description": "App slug."
+    },
+    "title": {
+      "type": "string",
+      "description": "Name people see, e.g. in emails and the browser tab."
+    },
+    "description": {
+      "type": "string",
+      "description": "What the app is for, in a sentence or two. The assistant reads it."
+    },
     "maker": {
       "type": "object",
-      "required": ["name", "email"],
+      "required": [
+        "name",
+        "email"
+      ],
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
-        "email": { "type": "string", "format": "email" }
+        "name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        }
       }
     },
-    "domain": { "type": "string", "description": "The app's own domain, without www." },
-    "region": { "type": "string", "description": "Provider region, near the users and their data." },
+    "domain": {
+      "type": "string",
+      "description": "The app's own domain, without www."
+    },
+    "region": {
+      "type": "string",
+      "description": "Provider region, near the users and their data."
+    },
     "database": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "schema": { "type": "string", "description": "Path to idempotent SQL, or a migrations folder." },
+        "schema": {
+          "type": "string",
+          "description": "Path to idempotent SQL, or a migrations folder."
+        },
         "limits": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "storageMb": { "type": "integer", "minimum": 1 },
-            "connections": { "type": "integer", "minimum": 1 },
-            "statementSeconds": { "type": "integer", "minimum": 1 }
+            "storageMb": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "connections": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "statementSeconds": {
+              "type": "integer",
+              "minimum": 1
+            }
           }
         }
       }
@@ -41,39 +87,96 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "method": { "const": "email-code" },
-        "allowed": { "type": "array", "items": { "type": "string", "format": "email" }, "uniqueItems": true },
-        "allowedDomains": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+        "method": {
+          "const": "email-code"
+        },
+        "allowed": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "email"
+          },
+          "uniqueItems": true
+        },
+        "allowedDomains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
       }
     },
     "mcp": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "path": { "type": "string", "default": "/mcp" },
-        "audience": { "enum": ["everyone", "technical"], "default": "everyone", "description": "everyone: plain English, nothing technical. technical: users are comfortable with detail." },
-        "instructions": { "type": "string", "description": "Path to the users' guide sent on initialize." },
-        "makerInstructions": { "type": "string", "description": "Path to the guide sent when the maker signs in." },
-        "icon": { "type": "string", "description": "Path to an SVG or PNG icon." }
+        "path": {
+          "type": "string",
+          "default": "/mcp"
+        },
+        "audience": {
+          "enum": [
+            "everyone",
+            "technical"
+          ],
+          "default": "everyone",
+          "description": "everyone: plain English, nothing technical. technical: users are comfortable with detail."
+        },
+        "instructions": {
+          "type": "string",
+          "description": "Path to the users' guide sent on initialize."
+        },
+        "makerInstructions": {
+          "type": "string",
+          "description": "Path to the guide sent when the maker signs in."
+        },
+        "icon": {
+          "type": "string",
+          "description": "Path to an SVG or PNG icon."
+        }
       }
     },
     "loop": {
       "type": "object",
-      "required": ["to"],
+      "required": [],
       "additionalProperties": false,
       "properties": {
-        "to": { "type": "string", "format": "email", "description": "Where asks are emailed. Usually the maker." },
-        "tool": { "type": "string", "pattern": "^ask_[a-z0-9_]+$", "default": "ask_maker" },
-        "dailyLimit": { "type": "integer", "minimum": 1, "default": 20 }
+        "to": {
+          "type": "string",
+          "format": "email",
+          "description": "Where asks are emailed. Defaults to the app's makers."
+        },
+        "tool": {
+          "type": "string",
+          "pattern": "^ask_[a-z0-9_]+$",
+          "default": "ask_maker"
+        },
+        "dailyLimit": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 20
+        }
       }
     },
     "email": {
       "type": "object",
-      "required": ["from"],
+      "required": [],
       "additionalProperties": false,
       "properties": {
-        "from": { "type": "string", "description": "Sender, e.g. \"Acme Helper <helper@example.com>\"." },
-        "provider": { "enum": ["postmark", "ses", "resend", "smtp", "provider-default"] }
+        "from": {
+          "type": "string",
+          "description": "Sender, e.g. \"Acme Helper <helper@example.com>\". Omit when Grove sends for the app."
+        },
+        "provider": {
+          "enum": [
+            "postmark",
+            "ses",
+            "resend",
+            "smtp",
+            "provider-default"
+          ]
+        }
       }
     },
     "functions": {
@@ -81,29 +184,49 @@
       "description": "HTTP handlers, keyed by slug.",
       "additionalProperties": {
         "type": "object",
-        "required": ["source"],
+        "required": [
+          "source"
+        ],
         "additionalProperties": false,
-        "properties": { "source": { "type": "string" } }
+        "properties": {
+          "source": {
+            "type": "string"
+          }
+        }
       }
     },
     "jobs": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["path", "schedule"],
+        "required": [
+          "path",
+          "schedule"
+        ],
         "additionalProperties": false,
         "properties": {
-          "path": { "type": "string" },
-          "schedule": { "type": "string", "description": "Cron expression, UTC." }
+          "path": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string",
+            "description": "Cron expression, UTC."
+          }
         }
       }
     },
     "secrets": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]*$"
+      },
       "uniqueItems": true,
       "description": "Names only. Values never go in this file."
     },
-    "dashboard": { "type": "boolean", "default": false }
+    "dashboard": {
+      "type": "boolean",
+      "default": false
+    }
   }
 }

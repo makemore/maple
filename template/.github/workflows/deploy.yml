@@ -1,0 +1,97 @@
+# Checks, then deploys: main to the live app, change/* branches to their own preview
+# (a copy of the database and its own address). Grove reads the result from the commit status.
+name: deploy
+on:
+  push:
+    branches: [main, "change/**"]
+  delete:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: deploy-${{ github.event.ref || github.ref }}
+  cancel-in-progress: false
+
+env:
+  NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+  NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  deploy:
+    if: github.event_name != 'delete'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Report pending
+        run: gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state=pending -f context=maple/deploy -f description="Checking and deploying" >/dev/null
+      - run: npm ci --no-audit --no-fund
+      - name: Check
+        run: npm run check
+      - run: npm install -g neon@9.4.0 --no-audit --no-fund
+      - name: Pick the database branch
+        id: branch
+        run: |
+          if [ "$GITHUB_REF_NAME" = main ]; then
+            name=production
+          else
+            name="preview-$(printf %s "${GITHUB_REF_NAME#change/}" | tr -c 'a-zA-Z0-9-' '-' | cut -c1-40)"
+            neon branches get "$name" --project-id "$NEON_PROJECT_ID" >/dev/null 2>&1 \
+              || neon branches create --name "$name" --parent production --project-id "$NEON_PROJECT_ID" >/dev/null
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+      - name: Deploy
+        env:
+          GROVE_URL: ${{ vars.GROVE_URL }}
+          GROVE_APP_SECRET: ${{ secrets.GROVE_APP_SECRET }}
+          PUBLIC_URL: ${{ steps.branch.outputs.name == 'production' && vars.PUBLIC_URL || '' }}
+        run: |
+          umask 077
+          { echo "GROVE_URL=$GROVE_URL"; echo "GROVE_APP_SECRET=$GROVE_APP_SECRET"; echo "PUBLIC_URL=$PUBLIC_URL"; echo "MAPLE_COMMIT=$GITHUB_SHA"; } > .env
+          neon deploy --project-id "$NEON_PROJECT_ID" --branch "${{ steps.branch.outputs.name }}" --env .env --update-existing
+          rm .env
+      - name: Set up sign-in for Claude
+        id: url
+        env:
+          PUBLIC_URL: ${{ steps.branch.outputs.name == 'production' && vars.PUBLIC_URL || '' }}
+        run: |
+          b="--project-id $NEON_PROJECT_ID --branch ${{ steps.branch.outputs.name }}"
+          native=$(neon functions get app $b -o json | jq -r .invocation_url | sed 's#/$##')
+          url=${PUBLIC_URL:-$native}
+          neon neon-auth domain list $b -o json 2>/dev/null | grep -q "\"$url\"" || neon neon-auth domain add "$url" $b
+          neon neon-auth config oauth-server update --enabled --login-page "$url/auth/sign-in" --consent-page "$url/auth/consent" --mcp-resource "$url/mcp" $b >/dev/null
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Wait for the new version
+        run: |
+          url=${{ steps.url.outputs.url }}
+          for i in $(seq 1 36); do
+            curl -fsS "$url/maple/health" | grep -q "$GITHUB_SHA" && break
+            sleep 5
+          done
+          curl -fsS "$url/maple/health" | grep -q "$GITHUB_SHA" || { echo "The new version did not come up"; exit 1; }
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$url/mcp")" = 401 || { echo "/mcp should ask for sign-in"; exit 1; }
+          curl -fsS "$url/" | grep -q '<title>' || { echo "Home page did not load"; exit 1; }
+      - name: Report live
+        run: gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state=success -f context=maple/deploy -f target_url="${{ steps.url.outputs.url }}" -f description="Live" >/dev/null
+      - name: Report failure
+        if: failure()
+        run: gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state=failure -f context=maple/deploy -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" -f description="Checks or deploy failed" >/dev/null
+
+  # A preview's database copy goes when its change branch is deleted (shipped or dropped).
+  cleanup:
+    if: github.event_name == 'delete' && startsWith(github.event.ref, 'change/')
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm install -g neon@9.4.0 --no-audit --no-fund
+      - run: |
+          ref="${{ github.event.ref }}"
+          name="preview-$(printf %s "${ref#change/}" | tr -c 'a-zA-Z0-9-' '-' | cut -c1-40)"
+          neon branches delete "$name" --project-id "$NEON_PROJECT_ID" || true

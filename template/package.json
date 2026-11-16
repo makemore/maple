@@ -1,0 +1,24 @@
+{
+  "name": "maple-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit && node --test src/",
+    "dev": "neon dev"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@neon/config": "^1.14.0",
+    "@neon/functions": "^0.11.0",
+    "@neon/oauth": "^0.3.0",
+    "hono": "^4.13.18",
+    "jose": "^6.2.17",
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
+    "typescript": "^5.9.0"
+  }
+}

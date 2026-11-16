@@ -1,0 +1,19 @@
+{
+  "maple": "0.1",
+  "name": "example",
+  "title": "Example",
+  "description": "A blank MAPLE app.",
+  "maker": {
+    "name": "Maker",
+    "email": "maker@example.com"
+  },
+  "auth": {
+    "method": "email-code",
+    "allowed": []
+  },
+  "mcp": {
+    "audience": "everyone"
+  },
+  "loop": {},
+  "database": {}
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "../maple.schema.json",
+  "maple": "0.1",
+  "name": "grove",
+  "title": "Grove",
+  "description": "Makes MAPLE apps: ask for an app and Grove creates it, then helps its maker grow it from the same chat.",
+  "maker": { "name": "Chris", "email": "hello@makewithgrove.com" },
+  "auth": { "method": "email-code", "allowed": [] },
+  "mcp": { "audience": "everyone" },
+  "loop": { "tool": "ask_chris" },
+  "email": { "from": "Grove <grove@foundrystudio.dev>", "provider": "postmark" },
+  "database": {}
+}
