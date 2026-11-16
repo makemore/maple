@@ -1,0 +1,16 @@
+{
+  "$schema": "../maple.schema.json",
+  "maple": "0.1",
+  "name": "river-rowing",
+  "title": "Club Helper",
+  "maker": { "name": "Priya", "email": "priya@example.org" },
+  "domain": "clubhelper.example",
+  "database": { "schema": "migrations/", "limits": { "storageMb": 256, "connections": 3 } },
+  "auth": { "method": "email-code", "allowedDomains": ["riverrowing.example"] },
+  "mcp": { "instructions": "guides/members.md" },
+  "loop": { "to": "priya@example.org" },
+  "email": { "from": "Club Helper <helper@clubhelper.example>", "provider": "smtp" },
+  "functions": { "app": { "source": "src/index.ts" } },
+  "jobs": [{ "path": "/remind-fees", "schedule": "0 9 1 * *" }],
+  "secrets": ["SMTP_URL"]
+}

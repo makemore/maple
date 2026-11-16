@@ -14,16 +14,18 @@ Around those five: functions (the app's code), scheduled jobs, secrets and a cus
 
 ## Why
 
-Small businesses don't want another dashboard to learn. They want to ask "what should I reorder?"
-in plain English and get an answer, and to say "can it also show profit per product?" and have
-that happen. MAPLE apps are built for that: the assistant is the interface, and the loop is how
-the app grows.
+Most people don't want another app to learn. They want to ask a question in plain English and get
+an answer from their own data, and to say "can it also do this?" and have that happen. A shop
+asking what to reorder, a clinic checking tomorrow's bookings, a club chasing unpaid fees, a team
+tracking its jobs: same shape every time. MAPLE apps are built for that: the assistant is the
+interface, the database holds what matters, and the loop is how the app grows.
 
 ## What's here
 
 - [SPEC.md](SPEC.md): what makes an app a MAPLE app (the rules).
 - [maple.schema.json](maple.schema.json): the manifest format, `maple.json`.
-- [examples/maple.json](examples/maple.json): a manifest for a shop's stock assistant.
+- [examples/](examples/): manifests for a shop's stock assistant (`shop.json`), a members' club
+  (`club.json`) and an internal tool for a technical team (`team-tools.json`).
 - [PROVIDERS.md](PROVIDERS.md): how each part maps onto Neon, Google Cloud, or a local Docker setup.
 
 Status: draft 0.1. Describes the format only; no tooling yet.

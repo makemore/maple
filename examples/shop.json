@@ -17,7 +17,7 @@
   },
   "mcp": {
     "path": "/mcp",
-    "instructions": "guides/owners.md",
+    "instructions": "guides/users.md",
     "makerInstructions": "guides/maker.md",
     "icon": "public/buddy.svg"
   },

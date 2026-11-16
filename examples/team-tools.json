@@ -1,0 +1,14 @@
+{
+  "$schema": "../maple.schema.json",
+  "maple": "0.1",
+  "name": "deploy-log",
+  "title": "Deploy Log",
+  "maker": { "name": "Platform team", "email": "platform@example.com" },
+  "database": { "schema": "src/schema.sql" },
+  "auth": { "method": "email-code", "allowedDomains": ["example.com"] },
+  "mcp": { "audience": "technical" },
+  "loop": { "to": "platform@example.com", "tool": "ask_platform" },
+  "email": { "from": "Deploy Log <deploys@example.com>", "provider": "provider-default" },
+  "functions": { "app": { "source": "src/index.ts" } },
+  "secrets": ["GITHUB_APP_KEY"]
+}

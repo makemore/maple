@@ -20,7 +20,7 @@
       }
     },
     "domain": { "type": "string", "description": "The app's own domain, without www." },
-    "region": { "type": "string", "description": "Provider region, near the owners and their data." },
+    "region": { "type": "string", "description": "Provider region, near the users and their data." },
     "database": {
       "type": "object",
       "additionalProperties": false,
@@ -51,7 +51,8 @@
       "additionalProperties": false,
       "properties": {
         "path": { "type": "string", "default": "/mcp" },
-        "instructions": { "type": "string", "description": "Path to the owners' guide sent on initialize." },
+        "audience": { "enum": ["everyone", "technical"], "default": "everyone", "description": "everyone: plain English, nothing technical. technical: users are comfortable with detail." },
+        "instructions": { "type": "string", "description": "Path to the users' guide sent on initialize." },
         "makerInstructions": { "type": "string", "description": "Path to the guide sent when the maker signs in." },
         "icon": { "type": "string", "description": "Path to an SVG or PNG icon." }
       }
@@ -71,7 +72,7 @@
       "required": ["from"],
       "additionalProperties": false,
       "properties": {
-        "from": { "type": "string", "description": "Sender, e.g. \"Shop Buddy <buddy@example.com>\"." },
+        "from": { "type": "string", "description": "Sender, e.g. \"Acme Helper <helper@example.com>\"." },
         "provider": { "enum": ["postmark", "ses", "resend", "smtp", "provider-default"] }
       }
     },
