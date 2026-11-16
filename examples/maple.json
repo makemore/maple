@@ -1,0 +1,30 @@
+{
+  "$schema": "../maple.schema.json",
+  "maple": "0.1",
+  "name": "corner-shop",
+  "title": "Shop Buddy",
+  "maker": { "name": "Sam", "email": "sam@example.com" },
+  "domain": "shopbuddy.example",
+  "region": "us-east",
+  "database": {
+    "schema": "src/schema.sql",
+    "limits": { "storageMb": 1024, "connections": 5, "statementSeconds": 30 }
+  },
+  "auth": {
+    "method": "email-code",
+    "allowed": ["sam@example.com"],
+    "allowedDomains": ["cornershop.example"]
+  },
+  "mcp": {
+    "path": "/mcp",
+    "instructions": "guides/owners.md",
+    "makerInstructions": "guides/maker.md",
+    "icon": "public/buddy.svg"
+  },
+  "loop": { "to": "sam@example.com", "tool": "ask_sam", "dailyLimit": 20 },
+  "email": { "from": "Shop Buddy <buddy@shopbuddy.example>", "provider": "postmark" },
+  "functions": { "app": { "source": "src/index.ts" } },
+  "jobs": [{ "path": "/sync", "schedule": "0 * * * *" }],
+  "secrets": ["POS_API_KEY", "POSTMARK_TOKEN"],
+  "dashboard": true
+}

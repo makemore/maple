@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://maple.dev/schema/0.1/maple.schema.json",
+  "title": "MAPLE app manifest",
+  "type": "object",
+  "required": ["maple", "name", "maker", "database", "auth", "mcp", "loop", "email"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "maple": { "const": "0.1", "description": "Spec version." },
+    "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,38}$", "description": "App slug." },
+    "title": { "type": "string", "description": "Name people see, e.g. in emails and the browser tab." },
+    "maker": {
+      "type": "object",
+      "required": ["name", "email"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" }
+      }
+    },
+    "domain": { "type": "string", "description": "The app's own domain, without www." },
+    "region": { "type": "string", "description": "Provider region, near the owners and their data." },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "type": "string", "description": "Path to idempotent SQL, or a migrations folder." },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "storageMb": { "type": "integer", "minimum": 1 },
+            "connections": { "type": "integer", "minimum": 1 },
+            "statementSeconds": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": { "const": "email-code" },
+        "allowed": { "type": "array", "items": { "type": "string", "format": "email" }, "uniqueItems": true },
+        "allowedDomains": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    },
+    "mcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "default": "/mcp" },
+        "instructions": { "type": "string", "description": "Path to the owners' guide sent on initialize." },
+        "makerInstructions": { "type": "string", "description": "Path to the guide sent when the maker signs in." },
+        "icon": { "type": "string", "description": "Path to an SVG or PNG icon." }
+      }
+    },
+    "loop": {
+      "type": "object",
+      "required": ["to"],
+      "additionalProperties": false,
+      "properties": {
+        "to": { "type": "string", "format": "email", "description": "Where asks are emailed. Usually the maker." },
+        "tool": { "type": "string", "pattern": "^ask_[a-z0-9_]+$", "default": "ask_maker" },
+        "dailyLimit": { "type": "integer", "minimum": 1, "default": 20 }
+      }
+    },
+    "email": {
+      "type": "object",
+      "required": ["from"],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "type": "string", "description": "Sender, e.g. \"Shop Buddy <buddy@example.com>\"." },
+        "provider": { "enum": ["postmark", "ses", "resend", "smtp", "provider-default"] }
+      }
+    },
+    "functions": {
+      "type": "object",
+      "description": "HTTP handlers, keyed by slug.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["source"],
+        "additionalProperties": false,
+        "properties": { "source": { "type": "string" } }
+      }
+    },
+    "jobs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "schedule"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string" },
+          "schedule": { "type": "string", "description": "Cron expression, UTC." }
+        }
+      }
+    },
+    "secrets": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+      "uniqueItems": true,
+      "description": "Names only. Values never go in this file."
+    },
+    "dashboard": { "type": "boolean", "default": false }
+  }
+}
