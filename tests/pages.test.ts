@@ -50,11 +50,29 @@ test("front page: shows the paid plan only when there is one", () => {
   sound(paid);
 });
 
-test("front page: the example at the top is four parts, each a tab with its own panel", () => {
+test("front page: the example at the top plays in steps, and every step up to the last has something to show", () => {
   const html = sitePage(MCP, 5);
-  const tabs = [...html.matchAll(/role="tab" id="(tab-[a-z]+)" aria-controls="(demo-[a-z]+)"/g)];
-  assert.equal(tabs.length, 4);
-  for (const [, tab, panel] of tabs) assert.match(html, new RegExp(`role="tabpanel" id="${panel}" aria-labelledby="${tab}"`), panel);
+  const last = Number(html.match(/id="demo" data-last="(\d+)"/)![1]);
+  const steps = new Set([...html.matchAll(/data-step="(\d+)"/g)].map((m) => Number(m[1])));
+  for (let n = 0; n <= last; n++) assert.ok(steps.has(n), `step ${n}`);
+  assert.equal(Math.max(...steps), last);
+  const chapters = [...html.matchAll(/data-go="(\d+)"/g)].map((m) => Number(m[1]));
+  assert.deepEqual(chapters, [...chapters].sort((a, b) => a - b), "chapters go forwards");
+  assert.equal(chapters[0], 0);
+  assert.equal(chapters.at(-1), last);
+  assert.match(html, /id="demo-play"/, "it can be paused");
+});
+
+test("front page: the example shows a database of linked tables, tools for the assistant and web addresses", () => {
+  const html = sitePage(MCP, 5);
+  const tables = [...html.matchAll(/<li data-step="\d+"(?: class="read")?><strong>([a-z_]+)<\/strong>/g)].map((m) => m[1]);
+  assert.deepEqual(tables, ["customers", "products", "orders", "order_items", "stock"]);
+  for (const [, target] of html.matchAll(/<em>[a-z_]+ → ([a-z_]+)<\/em>/g)) assert.ok(tables.includes(target), `${target} is a table shown`);
+  assert.equal((html.match(/class="read"/g) ?? []).length, 4, "the last answer reads four tables, as it says");
+  assert.match(html, /5 linked tables and 6 tools/);
+  assert.equal(html.match(/<ul class="chips">(.*?)<\/ul>/s)![1].split("<li>").length - 1, 6);
+  assert.match(html, /an MCP server/);
+  assert.match(html, /POST \/hooks\/website-order/);
 });
 
 test("front page: only says open source when there is public code to point at", () => {

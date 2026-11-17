@@ -36,29 +36,47 @@ for (const b of document.querySelectorAll("[data-copy]")) {
     }
   });
 }
-// The example at the top: one story in four parts. Without this script all four simply show one after another.
+// The example at the top plays through one story a step at a time. Without this script the finished state simply shows.
 const demo = document.getElementById("demo");
-const tabs = [...demo.querySelectorAll("[role=tab]")];
-const show = (tab, focus) => {
-  for (const t of tabs) {
-    const on = t === tab;
-    t.setAttribute("aria-selected", String(on));
-    t.tabIndex = on ? 0 : -1;
-    document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+const parts = [...demo.querySelectorAll("[data-step]")];
+const chapters = [...demo.querySelectorAll("[data-go]")];
+const play = document.getElementById("demo-play");
+const LAST = Number(demo.dataset.last);
+let now = 0, timer = 0;
+const at = (n) => {
+  now = n;
+  for (const el of parts) {
+    const on = n >= Number(el.dataset.step) && (!el.dataset.until || n < Number(el.dataset.until));
+    el.classList.toggle("off", !on);
   }
-  if (focus) tab.focus();
+  demo.classList.toggle("asking", n >= LAST);
+  const current = chapters.filter((c) => Number(c.dataset.go) <= n).pop();
+  for (const c of chapters) c.setAttribute("aria-current", String(c === current));
+};
+const stop = () => {
+  clearInterval(timer);
+  timer = 0;
+  play.textContent = now >= LAST ? "Replay" : "Play";
+};
+const start = () => {
+  if (now >= LAST) at(0);
+  play.textContent = "Pause";
+  timer = setInterval(() => {
+    at(now + 1);
+    if (now >= LAST) stop();
+  }, 2400);
 };
 demo.classList.add("live");
-demo.querySelector("[role=tablist]").hidden = false;
-for (const t of tabs) {
-  t.addEventListener("click", () => show(t));
-  t.addEventListener("keydown", (e) => {
-    const i = tabs.indexOf(t);
-    if (e.key === "ArrowRight") show(tabs[(i + 1) % tabs.length], true);
-    if (e.key === "ArrowLeft") show(tabs[(i + tabs.length - 1) % tabs.length], true);
-  });
+demo.querySelector(".chapters").hidden = false;
+play.addEventListener("click", () => (timer ? stop() : start()));
+for (const c of chapters) c.addEventListener("click", () => { stop(); at(Number(c.dataset.go)); play.textContent = now >= LAST ? "Replay" : "Play"; });
+if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  at(LAST);
+  stop();
+} else {
+  at(0);
+  start();
 }
-show(tabs[0]);
 `;
 
 const CSS = `
@@ -95,31 +113,68 @@ nav a:hover { color: var(--brand); text-decoration: underline; }
 section { padding-block: clamp(3rem, 8vw, 5.5rem); }
 .kicker { font-size: .95rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--brand); margin: 0 0 .6rem; }
 .intro { font-size: 1.2rem; color: var(--soft); max-width: 42rem; margin-bottom: 0; }
-.hero { padding-top: clamp(1.5rem, 5vw, 3.5rem); display: grid; gap: 2.5rem; align-items: center; }
-@media (min-width: 60rem) { .hero { grid-template-columns: 1.05fr .95fr; } }
-.lede { font-size: 1.3rem; color: var(--soft); max-width: 36rem; }
+.hero { padding-top: clamp(1.5rem, 5vw, 3.5rem); padding-bottom: clamp(1.5rem, 4vw, 2.5rem); text-align: center; }
+.hero .lede { margin-inline: auto; }
+.hero .actions { justify-content: center; }
+.lede { font-size: 1.3rem; color: var(--soft); max-width: 42rem; }
 .actions { display: flex; gap: .75rem; flex-wrap: wrap; margin-top: 1.5rem; align-items: center; }
 .btn { display: inline-block; font: inherit; font-weight: 600; padding: .8rem 1.35rem; border-radius: 999px; border: 2px solid var(--brand); background: var(--brand); color: var(--brand-ink); text-decoration: none; cursor: pointer; }
 .btn:hover { filter: brightness(1.08); }
 .btn.quiet { background: transparent; color: var(--brand); }
 .btn.small { padding: .45rem .9rem; font-size: 1rem; }
 .btn:disabled { opacity: .6; cursor: default; }
-.already { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line); font-size: 1rem; color: var(--soft); }
-.already .actions { margin-top: .6rem; }
+.already { margin-top: 1.25rem; font-size: 1rem; color: var(--soft); }
+.already a { font-weight: 600; }
 .note { color: var(--soft); font-size: 1rem; }
 
-.demo { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 1.5rem; padding: 1rem; box-shadow: 0 1.5rem 3rem -1.5rem rgb(31 81 53 / .35); }
-.demo [role=tablist] { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .75rem; }
-.demo [role=tab] { font: inherit; font-size: .95rem; font-weight: 600; padding: .4rem .85rem; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--soft); cursor: pointer; }
-.demo [role=tab][aria-selected=true] { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
-.demo h3 { font-size: .85rem; letter-spacing: .06em; text-transform: uppercase; color: var(--soft); margin: 1rem .25rem .5rem; }
-.demo.live h3 { position: absolute; left: -999px; }
-.demo .talk { min-height: 17.5rem; display: flex; flex-direction: column; gap: .6rem; justify-content: flex-end; }
-.demo p { margin: 0; padding: .7rem 1rem; border-radius: 1.1rem; max-width: 90%; font-size: 1rem; line-height: 1.5; }
-.demo .who { display: block; font-size: .78rem; font-weight: 700; color: var(--soft); }
-.demo .you { background: var(--tint); align-self: flex-end; border-bottom-right-radius: .3rem; }
-.demo .app { border: 1px solid var(--line); align-self: flex-start; border-bottom-left-radius: .3rem; }
-.demo figcaption { font-size: .9rem; color: var(--soft); text-align: center; margin-top: .75rem; }
+.stage { margin: 0 0 clamp(2rem, 5vw, 3rem); background: var(--card); border: 1px solid var(--line); border-radius: 1.5rem; padding: 1rem; box-shadow: 0 2rem 4rem -2rem rgb(31 81 53 / .4); text-align: left; }
+.chapters { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+.chapters button { font: inherit; font-size: .95rem; font-weight: 600; padding: .4rem .85rem; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--soft); cursor: pointer; }
+.chapters button[aria-current=true] { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+.chapters #demo-play { margin-left: auto; color: var(--brand); border-color: var(--brand); min-width: 5.5rem; }
+.panes { display: grid; gap: 1rem; }
+@media (min-width: 56rem) { .panes { grid-template-columns: .9fr 1.1fr; } }
+.pane { border: 1px solid var(--line); border-radius: 1.1rem; overflow: hidden; display: flex; flex-direction: column; background: var(--bg); }
+.bar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; padding: .6rem .9rem; border-bottom: 1px solid var(--line); font-size: .9rem; font-weight: 700; background: var(--card); min-height: 2.9rem; }
+.bar small { font-weight: 400; color: var(--soft); font-size: .85rem; }
+.bar code { border: 0; background: transparent; padding: 0; font-size: .9rem; }
+.pill { margin-left: auto; font-size: .8rem; font-weight: 700; padding: .15rem .6rem; border-radius: 999px; background: var(--tint); color: var(--soft); }
+.pill.go { background: var(--brand); color: var(--brand-ink); }
+.talk { display: flex; flex-direction: column; gap: .55rem; justify-content: flex-end; padding: .9rem; }
+.stage.live .talk { flex: 1; min-height: 0; overflow: hidden; }
+.stage.live .pane { height: 24rem; }
+.stage.live .pane + .pane { height: auto; min-height: 34rem; }
+@media (min-width: 56rem) { .stage.live .pane, .stage.live .pane + .pane { height: 42rem; min-height: 0; } }
+.talk p { margin: 0; padding: .65rem .95rem; border-radius: 1.1rem; max-width: 92%; font-size: .98rem; line-height: 1.45; flex-shrink: 0; }
+.talk .who { display: block; font-size: .75rem; font-weight: 700; color: var(--soft); }
+.talk .you { background: var(--tint); align-self: flex-end; border-bottom-right-radius: .3rem; }
+.talk .app { background: var(--card); border: 1px solid var(--line); align-self: flex-start; border-bottom-left-radius: .3rem; }
+.made { padding: .9rem; display: grid; gap: .75rem; align-content: start; }
+.stage.live .made { flex: 1; min-height: 0; overflow: hidden; }
+.box { background: var(--card); border: 1px solid var(--line); border-radius: .9rem; padding: .75rem .85rem; }
+.label { margin: 0 0 .5rem; font-size: .8rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--soft); }
+.label small { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: .85rem; }
+.tables { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); }
+.tables li { border: 1px solid var(--line); border-radius: .6rem; padding: .45rem .6rem; font-size: .82rem; line-height: 1.45; color: var(--soft); font-family: ui-monospace, "SF Mono", Menlo, monospace; transition: border-color .4s, box-shadow .4s; }
+.tables strong { display: block; color: var(--ink); font-size: .88rem; }
+.tables em { font-style: normal; color: var(--brand); }
+.stage.asking .tables .read { border-color: var(--leaf); box-shadow: 0 0 0 2px var(--leaf); }
+.chips { list-style: none; margin: 0; padding: 0; display: flex; gap: .4rem; flex-wrap: wrap; }
+.chips li { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .82rem; padding: .2rem .55rem; border-radius: .5rem; background: var(--tint); }
+.routes { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; font-size: .9rem; color: var(--soft); }
+.routes code { font-size: .82rem; margin-right: .4rem; }
+.tag { font-size: .75rem; font-weight: 700; padding: .1rem .5rem; border-radius: 999px; border: 1px dashed var(--soft); color: var(--soft); white-space: nowrap; }
+.tag.go { border: 0; background: var(--brand); color: var(--brand-ink); }
+.reads { margin: 0; font-size: .9rem; color: var(--soft); border-left: 3px solid var(--leaf); padding-left: .7rem; }
+.stage figcaption { font-size: .9rem; color: var(--soft); text-align: center; margin-top: .9rem; }
+.stage.live .off, .stage:not(.live) .passing { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .stage.live [data-step] { animation: arrive .45s ease-out; }
+  @keyframes arrive { from { opacity: 0; transform: translateY(.5rem); } }
+}
+.inside { list-style: none; margin: 0 0 clamp(2rem, 5vw, 3rem); padding: 0; display: grid; gap: 1.25rem 2rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+.inside strong { display: block; font-family: ui-rounded, system-ui, sans-serif; font-size: 1.15rem; }
+.inside span { color: var(--soft); font-size: 1rem; }
 
 .facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); background: var(--line); border: 1px solid var(--line); border-radius: 1.25rem; overflow: hidden; }
 .facts li { background: var(--card); padding: 1.1rem 1.25rem; }
@@ -219,12 +274,13 @@ const claudeLink = (connect: string) => `https://claude.ai/customize/connectors?
 
 export type PaidPlan = { price: string; apps: number };
 
-/** One part of the example at the top of the page: a short exchange between a person and their assistant. */
-const part = (id: string, title: string, lines: [who: string, text: string][]) => `
-      <div role="tabpanel" id="demo-${id}" aria-labelledby="tab-${id}">
-        <h3>${title}</h3>
-        <div class="talk">${lines.map(([who, text]) => `<p class="${who.startsWith("You") ? "you" : "app"}"><span class="who">${who}</span>${text}</p>`).join("")}</div>
-      </div>`;
+/** One line of the conversation in the example at the top: who says it, what, and the step it appears at. */
+const says = (step: number, who: "you" | "app", text: string) =>
+  `<p class="${who}" data-step="${step}"><span class="who">${who === "you" ? "You" : "Your assistant"}</span>${text}</p>`;
+
+/** One table in the example's database: its name, its columns (an arrow marks a link to another table), the step it appears at, and whether the last question reads it. */
+const table = (step: number, name: string, columns: string[], read = false) =>
+  `<li data-step="${step}"${read ? ' class="read"' : ""}><strong>${name}</strong>${columns.map((c) => (c.includes("→") ? `<em>${c}</em>` : c)).join("<br>")}</li>`;
 
 /**
  * The front page. connect is Grove's address for assistants, free is how many apps the free plan allows,
@@ -266,51 +322,81 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
 
 <main id="main">
   <section class="wrap hero">
-    <div>
-      <p class="kicker">Apps without the app</p>
-      <h1>Say what you need. Get a little app that does it.</h1>
-      <p class="lede">Grove turns a sentence into a working app you use by chatting with Claude or ChatGPT. It remembers your information, signs in the people you choose, and grows when you ask it to. You never write code or learn a screen.</p>
-      <div class="actions">
-        <a class="btn" href="#invite">Ask for an invite</a>
-        <a class="btn quiet" href="#how">See how it works</a>
+    <p class="kicker">Apps without the app</p>
+    <h1>Say what you need. Get a little app that does it.</h1>
+    <p class="lede">Grove turns a conversation with Claude, ChatGPT or any AI assistant into a real working app: its own database, its own tools, sign-in for your people. You never write code or learn a screen.</p>
+    <div class="actions">
+      <a class="btn" href="#invite">Ask for an invite</a>
+      <a class="btn quiet" href="#how">See how it works</a>
+    </div>
+    <p class="already">Already invited? <a href="${claudeLink(connect)}">Add Grove to Claude</a> or <a href="#chatgpt">add Grove to ChatGPT</a>.</p>
+  </section>
+
+  <div class="wrap">
+    <figure class="stage" id="demo" data-last="9">
+      <div class="chapters" hidden>
+        <button type="button" data-go="0">1. Describe it</button>
+        <button type="button" data-go="3">2. It's built</button>
+        <button type="button" data-go="5">3. Extend it</button>
+        <button type="button" data-go="9">4. Use it</button>
+        <button type="button" id="demo-play">Pause</button>
       </div>
-      <div class="already">
-        Already invited? Add Grove to your assistant:
-        <div class="actions">
-          <a class="btn quiet small" href="${claudeLink(connect)}">Add Grove to Claude</a>
-          <a class="btn quiet small" href="#chatgpt">Add Grove to ChatGPT</a>
+      <div class="panes">
+        <div class="pane">
+          <div class="bar">Your AI assistant <small>Claude, ChatGPT or another, with Grove added</small></div>
+          <div class="talk">
+            ${says(0, "you", "I run a small coffee roastery. I need to keep track of wholesale customers, their orders and our stock, and know what to roast each week.")}
+            ${says(1, "app", "I'll build that with Grove. Setting up the database and the tools now.")}
+            ${says(3, "app", "Done. Roastery Helper is live, with 5 linked tables and 6 tools. Who should be able to use it?")}
+            ${says(4, "you", "Me and Dana. Also, orders come in from our website.")}
+            ${says(5, "app", "I've added a web address your website can send orders to. It's on a trial copy with a copy of your data, so nothing live has changed. Want to try it?")}
+            ${says(6, "you", "It works. Make it live.")}
+            ${says(7, "app", "It's live. If you change your mind, I can undo it.")}
+            ${says(8, "you", "What should we roast this week?")}
+            ${says(9, "app", "From 14 open orders and what's in stock: Ethiopia 18 kg, Colombia 12 kg, Decaf 4 kg. Two customers haven't paid for last month. Shall I draft reminders?")}
+          </div>
+        </div>
+        <div class="pane">
+          <div class="bar">
+            <span data-step="1">Roastery Helper</span>
+            <code data-step="3">roastery.grovehelper.com</code>
+            <span class="pill passing" data-step="1" data-until="3">Building</span>
+            <span class="pill go" data-step="3">Live</span>
+          </div>
+          <div class="made">
+            <div class="box" data-step="1">
+              <p class="label">Database <small>its own Postgres</small></p>
+              <ul class="tables">
+                ${table(1, "customers", ["name", "email", "payment_terms"])}
+                ${table(1, "products", ["name", "roast", "price_per_kg"], true)}
+                ${table(2, "orders", ["customer → customers", "placed_at", "status"], true)}
+                ${table(2, "order_items", ["order → orders", "product → products", "kg"], true)}
+                ${table(2, "stock", ["product → products", "kg_on_hand"], true)}
+              </ul>
+            </div>
+            <div class="box" data-step="3">
+              <p class="label">Tools for your assistant <small>an MCP server, made for this app</small></p>
+              <ul class="chips"><li>add_order</li><li>roast_plan</li><li>whats_low</li><li>unpaid_orders</li><li>customer_history</li><li>ask_the_maker</li></ul>
+            </div>
+            <div class="box" data-step="5">
+              <p class="label">Web addresses <small>an API other software can call</small></p>
+              <ul class="routes">
+                <li><code>POST /hooks/website-order</code><span class="tag passing" data-step="5" data-until="6">trial copy</span><span class="tag go" data-step="6">live</span></li>
+                <li><code>GET /api/stock</code>signed-in only</li>
+              </ul>
+            </div>
+            <p class="reads" data-step="9">Answered from four linked tables: orders, order_items, products and stock.</p>
+          </div>
         </div>
       </div>
-    </div>
-    <figure class="demo" id="demo">
-      <div role="tablist" aria-label="An example, in four parts" hidden>
-        <button role="tab" id="tab-make" aria-controls="demo-make" type="button">1. Make it</button>
-        <button role="tab" id="tab-use" aria-controls="demo-use" type="button">2. Use it</button>
-        <button role="tab" id="tab-grow" aria-controls="demo-grow" type="button">3. Grow it</button>
-        <button role="tab" id="tab-share" aria-controls="demo-share" type="button">4. Share it</button>
-      </div>${part("make", "1. Make it", [
-        ["You", "Make me something to keep track of who has paid their rowing club fees."],
-        ["Grove", "Done. It's called Club Helper and it's live. Who should be able to use it?"],
-        ["You", "Me and Tom, the treasurer."],
-        ["Grove", "Added you both. Here's how to add Club Helper to your assistant."],
-      ])}${part("use", "2. Use it", [
-        ["You, a week later", "Ana and Priya paid for spring today. Who still owes?"],
-        ["Club Helper", "Noted for both. Three people still owe for spring: Tom B, Sam and Lucy. Shall I write them a reminder?"],
-        ["You", "Yes, friendly but short."],
-      ])}${part("grow", "3. Grow it", [
-        ["You", "Can it also keep track of who has a boat key?"],
-        ["Grove", "I've added that to a trial copy, with a copy of your information, so nothing live has changed. Try it here and tell me if it's right."],
-        ["You", "Looks good. Make it live."],
-        ["Grove", "It's live. If you change your mind, I can undo it."],
-      ])}${part("share", "4. Share it", [
-        ["Tom, in his own chat", "Has Lucy paid?"],
-        ["Club Helper", "Not yet. She owes £40 for spring."],
-        ["Tom", "It would help if it showed who pays by standing order."],
-        ["Club Helper", "Good idea. I've sent that to the person who looks after this app."],
-      ])}
-      <figcaption>An example of how it goes.</figcaption>
+      <figcaption>An example of how it goes. The business and its numbers are made up.</figcaption>
     </figure>
-  </section>
+    <ul class="inside">
+      <li><strong>A real database</strong><span>Proper Postgres, with as many linked tables as the job needs. Not a spreadsheet behind a chat.</span></li>
+      <li><strong>Its own tools</strong><span>Each app is an MCP server made for that one job, which any assistant that speaks MCP can use.</span></li>
+      <li><strong>An API when you need one</strong><span>Web addresses other software can call, so your site, forms and other tools can feed it.</span></li>
+    </ul>
+  </div>
 
   <div class="wrap">
     <ul class="facts">
