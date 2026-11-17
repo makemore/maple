@@ -43,6 +43,8 @@ export default defineConfig({
         STRIPE_PRICE_ID: { value: process.env.STRIPE_PRICE_ID, required: false, onUndefined: "skip" },
         STRIPE_WEBHOOK_SECRET: { value: process.env.STRIPE_WEBHOOK_SECRET, required: false, onUndefined: "skip" },
         PAID_APPS_PER_PERSON: { value: process.env.PAID_APPS_PER_PERSON, required: false },
+        // Tokens of tool traffic in a day before Grove stops and asks the person whether to carry on (default 150000).
+        USAGE_WARN_TOKENS: { value: process.env.USAGE_WARN_TOKENS, required: false },
         // Who runs this Grove, for its terms and privacy pages. Until both are set the pages are drafts and nobody is asked to agree.
         GROVE_LEGAL_NAME: { value: process.env.GROVE_LEGAL_NAME, required: false },
         GROVE_CONTACT_EMAIL: { value: process.env.GROVE_CONTACT_EMAIL, required: false },

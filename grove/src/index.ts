@@ -10,6 +10,7 @@ import { BuildError, bundle, check, upload, zip, type Files } from "./build.ts";
 import { connectionUri, createBranch, createProject, deleteBranch, deleteProject, registerDomain, setUpSignIn } from "./neon.ts";
 import { waitUntil } from "@neon/functions";
 import { GUARD_SCHEMA, MAX_OPEN_CHANGES, appNamed, blockedWhy, concerns, mayNotify, pausedArchive, report, reportPage, underBuildLimit } from "./guard.ts";
+import { HEAVY, METER_SCHEMA, carryOn, firstLimit, record, rounded, stopMessage, summary, today } from "./meter.ts";
 import { LEGAL_SCHEMA, TERMS_VERSION, agree, agreed, privacyPage, termsOn, termsPage } from "./legal.ts";
 import { sitePage, type PaidPlan } from "./site.ts";
 import { CHANGE, MAX_FILE, RESERVED, SLUG, applyWrites, diff, merge, tooBig, withKit } from "./code.ts";
@@ -31,7 +32,7 @@ create table if not exists changes (
   app text not null, name text not null, version bigint not null, base bigint not null, branch_id text, url text,
   updated_at timestamptz not null default now(), primary key (app, name));
 create table if not exists waitlist (
-  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}${GUARD_SCHEMA}`;
+  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}${GUARD_SCHEMA}${METER_SCHEMA}`;
 
 const DOMAIN = process.env.APPS_DOMAIN;
 
@@ -51,7 +52,11 @@ puts up a preview; if it reports problems, fix them and write again), show the p
 when the person says so. After create_app, tell the person how to add the app to Claude
 (Settings, Connectors, Add custom connector, paste the connection address).
 If a tool says the person must agree to the terms first, give them both links, ask plainly whether they agree,
-and call accept_terms only after they say yes themselves. Never agree for them.`;
+and call accept_terms only after they say yes themselves. Never agree for them.
+Building uses up the person's assistant allowance, which matters on a subscription. Before making an app or a
+change that touches several files, say in a few plain words how big the job is (the usage tool gives what
+changes have typically taken) and keep each change small: read only the files you need, and write only the
+files that change. If a tool says to stop and check with the person, do that before anything else.`;
 
 // The paid plan as the site shows it: read from Stripe now and then, so the page itself never waits on Stripe.
 let paid: PaidPlan | undefined, paidAt = 0;
@@ -136,6 +141,61 @@ const SWITCH = "Neon can take a minute or two to switch to a new version";
 
 function tools(server: McpServer, ctx: Ctx) {
   const { json, person } = ctx;
+
+  // Every tool call is counted against the person and the app, by the size of what went in and what came back.
+  // The tools that move a lot of text stop and ask once the day's total reaches what the person has agreed to.
+  const register = server.registerTool.bind(server) as (...a: any[]) => any;
+  (server as any).registerTool = (name: string, config: any, handler: (args: any, extra: any) => Promise<any>) =>
+    register(name, config, async (args: any, extra: any) => {
+      await init();
+      if (HEAVY.has(name)) {
+        const t = await today(pool, person.email), stop = stopMessage(t.used, t.upto);
+        if (stop) throw new Error(stop);
+      }
+      const app = typeof args?.app === "string" ? args.app : name === "create_app" && typeof args?.name === "string" ? args.name : "";
+      const sizeIn = JSON.stringify(args ?? {}).length;
+      const count = (out: number) => record(pool, person.email, app.slice(0, 60), sizeIn, out).catch((e) => console.error("counting usage:", e));
+      try {
+        const result = await handler(args, extra);
+        await count((result?.content ?? []).reduce((n: number, c: any) => n + (typeof c?.text === "string" ? c.text.length : 0), 0));
+        return result;
+      } catch (e) {
+        await count(e instanceof Error ? e.message.length : 0);
+        throw e;
+      }
+    });
+
+  server.registerTool(
+    "usage",
+    {
+      title: "How much has this used?",
+      annotations: { readOnlyHint: true },
+      description:
+        "How much of the person's assistant allowance Grove's tools have used: today, and per app over the last 30 days, with what one saved change has typically taken (small, medium or large). These count only what passes through Grove; the assistant's own thinking and the length of the chat come on top, usually several times over. Use it to tell the person how big a job is before starting it.",
+      inputSchema: {},
+    },
+    async () => {
+      const t = await today(pool, person.email);
+      return json({
+        today: { tokens: t.used, inWords: `${rounded(t.used)} tokens through Grove's tools today`, grovePausesToAskAt: t.upto },
+        apps: await summary(pool, person.email),
+        guide: "Sizes are per saved change: small is under 10 thousand tokens, medium under 50 thousand, large is more. Making a new app is usually medium. A fresh chat for each new piece of work keeps the cost per step down.",
+      });
+    },
+  );
+
+  server.registerTool(
+    "accept_usage",
+    {
+      title: "Carry on after a usage warning",
+      description: "Records that the person wants to keep going today after Grove stopped to warn them about how much of their assistant allowance has been used. Only call this after telling them the figure and after they have clearly said yes themselves in this chat. Grove will stop and ask again at twice the amount.",
+      inputSchema: { agree: z.literal(true).describe("true only when the person has just said they want to carry on") },
+    },
+    async () => {
+      const { used, next } = await carryOn(pool, person.email);
+      return json({ carryOn: true, usedToday: used, grovePausesToAskAgainAt: next, firstPauseEachDay: firstLimit() });
+    },
+  );
 
   /** Making, changing and paying need the person's agreement to the current terms, and an account in good standing. */
   const mustAgree = async () => {
