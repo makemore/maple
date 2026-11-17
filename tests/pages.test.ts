@@ -23,7 +23,7 @@ test("front page: sound HTML with one main heading and the sections the menu lin
   const html = sitePage(MCP, 5);
   sound(html);
   assert.equal(html.match(/<h1[ >]/g)?.length, 1);
-  for (const id of ["main", "how", "connect", "chatgpt", "get", "price", "invite"]) assert.match(html, new RegExp(`id="${id}"`), id);
+  for (const id of ["main", "how", "make", "get", "yours", "safe", "connect", "chatgpt", "price", "faq", "invite"]) assert.match(html, new RegExp(`id="${id}"`), id);
   for (const [, target] of html.matchAll(/href="#([a-z-]+)"/g)) assert.match(html, new RegExp(`id="${target}"`), `#${target} goes somewhere`);
 });
 
@@ -48,6 +48,29 @@ test("front page: shows the paid plan only when there is one", () => {
   assert.match(paid, /<h3>Plus<\/h3>\s*<p class="big">£12 a month<\/p>/);
   assert.match(paid, /Up to 25 small apps/);
   sound(paid);
+});
+
+test("front page: the example at the top is four parts, each a tab with its own panel", () => {
+  const html = sitePage(MCP, 5);
+  const tabs = [...html.matchAll(/role="tab" id="(tab-[a-z]+)" aria-controls="(demo-[a-z]+)"/g)];
+  assert.equal(tabs.length, 4);
+  for (const [, tab, panel] of tabs) assert.match(html, new RegExp(`role="tabpanel" id="${panel}" aria-labelledby="${tab}"`), panel);
+});
+
+test("front page: only says open source when there is public code to point at", () => {
+  const closed = sitePage(MCP, 5);
+  assert.doesNotMatch(closed, /open source/i);
+  assert.doesNotMatch(closed, /github/i);
+  const open = sitePage(MCP, 5, undefined, "https://github.com/example/maple");
+  assert.match(open, /open source under the MIT licence/);
+  assert.equal(open.match(/href="https:\/\/github\.com\/example\/maple"/g)?.length, 2, "in the section and in the footer");
+  sound(open);
+});
+
+test("front page: says what a free app carries and what paying takes off", () => {
+  const html = sitePage(MCP, 5, { price: "£12 a month", apps: 25 });
+  assert.match(html, /"Made with Grove" line on each app's pages/);
+  assert.match(html, /No Grove line on your apps' pages/);
 });
 
 test("front page: links to the terms and privacy pages", () => {

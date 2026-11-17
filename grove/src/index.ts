@@ -69,7 +69,7 @@ function paidPlan() {
 }
 paidPlan();
 
-const { app, pool, init, email, site } = createMapleApp({ manifest: manifest as Manifest, slug: "grove", schema, guide, tools, routes, home: ({ mcpUrl }) => sitePage(mcpUrl, Number(process.env.APPS_PER_PERSON ?? 5), paidPlan()) });
+const { app, pool, init, email, site } = createMapleApp({ manifest: manifest as Manifest, slug: "grove", schema, guide, tools, routes, home: ({ mcpUrl }) => sitePage(mcpUrl, Number(process.env.APPS_PER_PERSON ?? 5), paidPlan(), process.env.GROVE_REPO_URL) });
 
 async function appFor(ctx: Ctx, slug: string) {
   await init();
