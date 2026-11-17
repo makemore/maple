@@ -72,8 +72,8 @@ export function verified(body: string, header: string | undefined, secret = proc
   return parts.some(([k, v]) => k === "v1" && v.length === want.length && timingSafeEqual(Buffer.from(v), want));
 }
 
-/** Records what Stripe says happened. Safe to receive twice or out of order: the subscription is read fresh each time. */
-export async function onEvent(pool: Pool, event: any) {
+/** Records what Stripe says happened, and returns whose plan it was about. Safe to receive twice or out of order: the subscription is read fresh each time. */
+export async function onEvent(pool: Pool, event: any): Promise<string | undefined> {
   const o = event?.data?.object;
   if (!o) return;
   let subscription: string | undefined;
@@ -88,4 +88,5 @@ export async function onEvent(pool: Pool, event: any) {
     "insert into plans (email, customer, subscription, status) values ($1, $2, $3, $4) on conflict (email) do update set customer = $2, subscription = $3, status = $4, updated_at = now()",
     [email, sub.customer, sub.id, sub.status],
   );
+  return email;
 }

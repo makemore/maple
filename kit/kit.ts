@@ -11,7 +11,7 @@ import { Hono, type Context } from "hono";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { Pool } from "pg";
 import { z } from "zod";
-import { consentPage, homePage, signInPage, ICON_SVG } from "./pages.ts";
+import { consentPage, groveBadge, homePage, signInPage, withBadge, ICON_SVG } from "./pages.ts";
 
 export { z };
 export type Role = "maker" | "user";
@@ -295,6 +295,18 @@ export function createMapleApp(def: AppDef) {
     }
     await next();
   });
+
+  // Free apps hosted by Grove say so at the foot of every page. Grove sets GROVE_BADGE when it deploys them.
+  if (process.env.GROVE_BADGE && process.env.GROVE_URL) {
+    const badge = groveBadge(process.env.GROVE_URL, def.slug);
+    app.use("*", async (c, next) => {
+      await next();
+      if (!c.res.headers.get("content-type")?.startsWith("text/html") || !c.res.body) return;
+      const headers = new Headers(c.res.headers);
+      headers.delete("content-length");
+      c.res = new Response(withBadge(await c.res.text(), badge), { status: c.res.status, headers });
+    });
+  }
 
   const authUrl = process.env.NEON_AUTH_BASE_URL ?? "";
   const signedInPage = (c: Context) => c.html(homePage(title, authUrl, mcpUrl), 200, page);

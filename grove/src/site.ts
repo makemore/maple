@@ -121,7 +121,7 @@ export const shell = (title: string, body: string) => `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${title}</title>
+<title>${title.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`)}</title>
 <link rel="icon" type="image/svg+xml" href="/icon.svg">
 <style>${CSS}</style>
 </head>

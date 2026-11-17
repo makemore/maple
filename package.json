@@ -4,8 +4,10 @@
   "type": "module",
   "scripts": {
     "bundle": "node scripts/bundle-template.ts",
-    "check": "npm run bundle && tsc --noEmit && node --test template/src/",
-    "deploy:grove": "test -f .env.local && npm run bundle && (cd grove && neon deploy --env ../.env.local --project-id snowy-hat-06906890 --branch main --update-existing); rm -f grove/.gitignore grove/.env.local"
+    "test": "npm run bundle && tsc --noEmit && node --test tests/",
+    "test:live": "node --env-file=.env.grove scripts/e2e.ts",
+    "check": "npm test",
+    "deploy:grove": "test -f .env.grove && npm run bundle && (cd grove && neon deploy --env ../.env.grove --project-id snowy-hat-06906890 --branch main --update-existing); rm -f grove/.gitignore grove/.env.local"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

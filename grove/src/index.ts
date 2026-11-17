@@ -8,8 +8,11 @@ import { createMapleApp, z, type Ctx, type Manifest } from "../../kit/kit.ts";
 import { BILLING_SCHEMA, billingOn, checkout, onEvent, planFor, portal, priceText, verified } from "./billing.ts";
 import { BuildError, bundle, check, upload, zip, type Files } from "./build.ts";
 import { connectionUri, createBranch, createProject, deleteBranch, deleteProject, registerDomain, setUpSignIn } from "./neon.ts";
+import { waitUntil } from "@neon/functions";
+import { GUARD_SCHEMA, appNamed, blockedWhy, concerns, mayNotify, pausedArchive, report, reportPage, underBuildLimit } from "./guard.ts";
 import { LEGAL_SCHEMA, TERMS_VERSION, agree, agreed, privacyPage, termsOn, termsPage } from "./legal.ts";
 import { sitePage, type PaidPlan } from "./site.ts";
+import { CHANGE, MAX_FILE, RESERVED, SLUG, applyWrites, diff, merge, tooBig, withKit } from "./code.ts";
 import { TEMPLATE } from "./template-files.ts";
 
 // An app's code lives here as whole versions: every saved change and every shipped state is one row.
@@ -28,15 +31,8 @@ create table if not exists changes (
   app text not null, name text not null, version bigint not null, base bigint not null, branch_id text, url text,
   updated_at timestamptz not null default now(), primary key (app, name));
 create table if not exists waitlist (
-  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}`;
+  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}${GUARD_SCHEMA}`;
 
-// The kit stays as MAPLE made it; features go everywhere else.
-const PROTECTED = [/^src\/maple\//, /^package-lock\.json$/];
-const MAX_FILE = 200_000, MAX_FILES = 200, MAX_TOTAL = 3_000_000;
-const SLUG = /^[a-z][a-z0-9-]{1,38}[a-z0-9]$/;
-const CHANGE = /^[a-z0-9][a-z0-9-]{0,38}$/;
-// Names that would look like part of Grove itself on the apps domain.
-const RESERVED = new Set(["www", "grove", "maple", "api", "app", "apps", "admin", "mail", "email", "help", "support", "status", "preview", "login", "signin", "sign-in", "account", "billing", "pay", "secure", "security"]);
 const DOMAIN = process.env.APPS_DOMAIN;
 
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -111,7 +107,9 @@ async function built(files: Files) {
 
 /** Puts a built version on one of the app's database branches and makes sign-in work at its address. */
 async function putUp(a: any, branch: string, archive: Record<string, string>, version: string, publicUrl?: string, first = false) {
-  const env = { GROVE_URL: site, GROVE_APP_SECRET: appSecret(a.slug), MAPLE_COMMIT: String(version), ...(publicUrl && { PUBLIC_URL: publicUrl }) };
+  // Free apps carry a line about Grove at the foot of their pages; the paid plan takes it off.
+  const free = (await planFor(pool, a.makers[0])).plan === "free";
+  const env = { GROVE_URL: site, GROVE_APP_SECRET: appSecret(a.slug), MAPLE_COMMIT: String(version), ...(publicUrl && { PUBLIC_URL: publicUrl }), ...(free && { GROVE_BADGE: "1" }) };
   const { address } = await upload({ key: process.env.NEON_API_KEY!, project: a.neon_project_id, branch }, archive, env);
   const url = publicUrl ?? address;
   if (first && publicUrl && publicUrl !== address) await registerDomain(a.neon_project_id, branch, new URL(publicUrl).host);
@@ -123,30 +121,144 @@ async function putUp(a: any, branch: string, archive: Record<string, string>, ve
 const serving = (url: string, version: string | number) =>
   fetch(`${url}/maple/health`, { signal: AbortSignal.timeout(6000) }).then((r) => r.json()).then((h: any) => String(h.commit) === String(version), () => false);
 
-/** Combines a change with what shipped since it started, file by file. */
-function merge(base: Files, live: Files, mine: Files) {
-  const files: Files = {}, clashes: string[] = [];
-  for (const path of new Set([...Object.keys(base), ...Object.keys(live), ...Object.keys(mine)])) {
-    const b = base[path], l = live[path], m = mine[path];
-    const pick = m === b ? l : l === b || l === m ? m : (clashes.push(path), m);
-    if (pick !== undefined) files[path] = pick;
-  }
-  return { files, clashes };
+/** Puts the shipped version up again as it is, e.g. after the maker's plan changed or a pause ended. */
+async function putUpAgain(a: any) {
+  if (a.paused_at || !a.live) return;
+  await putUp(a, a.branch_id, await built(await filesOf(a.live)), a.live, a.url);
 }
 
-const diff = (from: Files, to: Files) =>
-  [...new Set([...Object.keys(from), ...Object.keys(to)])].sort().flatMap((p) => (from[p] === to[p] ? [] : [`${!(p in from) ? "added" : !(p in to) ? "deleted" : "changed"} ${p}`]));
+/** Why this app can't be changed right now, if it is paused. Its code and information can still be taken away. */
+const notPaused = (a: any) => {
+  if (a.paused_at) throw new Error(`${a.slug} has been paused by Grove${a.paused_why ? `: ${a.paused_why}` : ""}. It can't be changed or shipped until that is sorted out${process.env.GROVE_CONTACT_EMAIL ? `: write to ${process.env.GROVE_CONTACT_EMAIL}` : ""}. export_app still gives its code and information.`);
+};
 
 const SWITCH = "Neon can take a minute or two to switch to a new version";
 
 function tools(server: McpServer, ctx: Ctx) {
   const { json, person } = ctx;
 
-  /** Making, changing and paying need the person's agreement to the current terms. */
+  /** Making, changing and paying need the person's agreement to the current terms, and an account in good standing. */
   const mustAgree = async () => {
+    const why = await blockedWhy(pool, person.email);
+    if (why) throw new Error(`This account can't make or change apps: ${why}${process.env.GROVE_CONTACT_EMAIL ? ` To ask about it, write to ${process.env.GROVE_CONTACT_EMAIL}.` : ""}`);
     if (!(await agreed(pool, person.email)))
       throw new Error(`Before this, the person needs to agree to Grove's terms (${site}/terms) and privacy notice (${site}/privacy). Show them both links, ask if they agree, and when they say yes call accept_terms.`);
   };
+
+  /** Checks and saves the files as the newest version of a change, and puts it up as a preview on its own copy of the database. */
+  const preview = async (a: any, change: string, ch: any, files: Files, message: string) => {
+    notPaused(a);
+    if (!ctx.isMaker) await underBuildLimit(pool, person.email, (await planFor(pool, person.email)).plan === "paid");
+    const archive = await built(files);
+    const version = await save(a.slug, files, message, person.email);
+    for (const c of concerns(files)) await report(pool, a.slug, c, "Grove check");
+    const branch = ch?.branch_id ?? (await createBranch(a.neon_project_id, `preview-${change}`, a.branch_id));
+    await pool.query(
+      "insert into changes (app, name, version, base, branch_id) values ($1, $2, $3, $4, $5) on conflict (app, name) do update set version = $3, branch_id = $5, updated_at = now()",
+      [a.slug, change, version, a.live, branch],
+    );
+    const url = await putUp(a, branch, archive, version);
+    await pool.query("update changes set url = $3 where app = $1 and name = $2", [a.slug, change, url]);
+    return { change, version, status: "saved", preview: url, previewConnect: url + "/mcp", next: `${SWITCH}; change_status says when the preview shows this version. Show the person the preview, and ship_change when they say so.` };
+  };
+
+  const makerOnly = () => {
+    if (!ctx.isMaker) throw new Error("Only Grove's maker can do this.");
+  };
+
+  /** Swaps an app (and its previews) for the paused page, or puts it back. */
+  const pause = async (a: any, why: string) => {
+    await pool.query("update apps set paused_at = now(), paused_why = $2 where slug = $1", [a.slug, why]);
+    const { rows } = await pool.query("select branch_id from changes where app = $1 and branch_id is not null", [a.slug]);
+    for (const branch of [a.branch_id, ...rows.map((r) => r.branch_id)])
+      await upload({ key: process.env.NEON_API_KEY!, project: a.neon_project_id, branch }, pausedArchive(a.title, site), { MAPLE_COMMIT: "paused" });
+  };
+
+  server.registerTool(
+    "pause_app",
+    {
+      title: "Pause an app",
+      description: "For Grove's maker: takes an app offline straight away and shows a 'paused' page in its place, for an app that is harming people or breaking the terms. Its code and information are kept, and its maker can still download them, but can't change or ship it. Give the reason in words its maker can read. Confirm first.",
+      inputSchema: { app: z.string(), why: z.string().min(5).max(500) },
+    },
+    async ({ app: slug, why }) => {
+      makerOnly();
+      const a = await appFor(ctx, slug);
+      await pause(a, why);
+      return json({ paused: slug, why, makers: a.makers, next: "resume_app puts it back. Neon can take a minute or two to switch." });
+    },
+  );
+
+  server.registerTool(
+    "resume_app",
+    { title: "Put a paused app back", description: "For Grove's maker: puts a paused app back online as it was. Its previews come back the next time each change is saved.", inputSchema: { app: z.string() } },
+    async ({ app: slug }) => {
+      makerOnly();
+      const a = await appFor(ctx, slug);
+      if (!a.paused_at) return json({ app: slug, note: "It wasn't paused." });
+      await pool.query("update apps set paused_at = null, paused_why = null where slug = $1", [slug]);
+      await putUpAgain({ ...a, paused_at: null });
+      return json({ resumed: slug });
+    },
+  );
+
+  server.registerTool(
+    "block_person",
+    {
+      title: "Block a person",
+      description: "For Grove's maker: stops a person making or changing apps, and pauses every app they make. For someone using Grove to harm people. Give the reason in words they can read. Confirm first.",
+      inputSchema: { email: z.string().email(), why: z.string().min(5).max(500) },
+    },
+    async ({ email: who, why }) => {
+      makerOnly();
+      await init();
+      const address = who.toLowerCase();
+      if (address === person.email) throw new Error("That's you.");
+      await pool.query("insert into blocked (email, why) values ($1, $2) on conflict (email) do update set why = $2", [address, why]);
+      const { rows } = await pool.query("select * from apps where $1 = any(makers) and paused_at is null and status <> 'creating'", [address]);
+      for (const a of rows) await pause(a, why);
+      return json({ blocked: address, appsPaused: rows.map((a) => a.slug) });
+    },
+  );
+
+  server.registerTool(
+    "unblock_person",
+    { title: "Unblock a person", description: "For Grove's maker: lets a blocked person make and change apps again. Their paused apps stay paused until resume_app.", inputSchema: { email: z.string().email() } },
+    async ({ email: who }) => {
+      makerOnly();
+      await init();
+      const { rowCount } = await pool.query("delete from blocked where email = $1", [who.toLowerCase()]);
+      const { rows } = await pool.query("select slug from apps where $1 = any(makers) and paused_at is not null", [who.toLowerCase()]);
+      return json({ unblocked: Boolean(rowCount), stillPaused: rows.map((a) => a.slug) });
+    },
+  );
+
+  server.registerTool(
+    "list_reports",
+    {
+      title: "Reports about apps",
+      annotations: { readOnlyHint: true },
+      description: "For Grove's maker: open reports about apps, from the public and from Grove's own check of app code (reporter 'Grove check'), with who makes each app and whether it is paused. A report is something to look into, not proof.",
+      inputSchema: {},
+    },
+    async () => {
+      makerOnly();
+      await init();
+      const { rows } = await pool.query("select r.id, r.app, r.what, r.reporter, r.created_at, a.makers, a.url, a.paused_at is not null as paused from reports r left join apps a on a.slug = r.app where r.closed_at is null order by r.created_at desc limit 100");
+      return json({ reports: rows });
+    },
+  );
+
+  server.registerTool(
+    "close_report",
+    { title: "Close a report", description: "For Grove's maker: marks a report as dealt with, whatever was decided.", inputSchema: { id: z.number().int() } },
+    async ({ id }) => {
+      makerOnly();
+      await init();
+      const { rowCount } = await pool.query("update reports set closed_at = now() where id = $1 and closed_at is null", [id]);
+      return json({ closed: Boolean(rowCount) });
+    },
+  );
 
   server.registerTool(
     "accept_terms",
@@ -205,7 +317,7 @@ function tools(server: McpServer, ctx: Ctx) {
       try {
         const [archive, where] = await Promise.all([built(files), createProject(name).then((p) => (made = p))]);
         const version = await save(name, files, `Start ${title} from the MAPLE template`, person.email, true);
-        const a = { slug: name, neon_project_id: where.project };
+        const a = { slug: name, neon_project_id: where.project, makers: [person.email] };
         const url = await putUp(a, where.branch, archive, version, DOMAIN && `https://${name}.${DOMAIN}`, true);
         await pool.query("update apps set neon_project_id = $2, branch_id = $3, url = $4, live = $5, status = 'live' where slug = $1", [name, where.project, where.branch, url, version]);
         return json({ app: name, status: "starting", address: url, connect: url + "/mcp", next: "The address starts answering within a minute or two; app_status says when. Meanwhile, read AGENTS.md and src/app.ts and start building the features with write_files." });
@@ -243,7 +355,9 @@ function tools(server: McpServer, ctx: Ctx) {
         pool.query("select name, updated_at from changes where app = $1 order by updated_at desc", [slug]),
         pool.query("select id as version, message, author, shipped_at from versions where app = $1 and shipped_at is not null order by shipped_at desc, id desc limit 5", [slug]),
       ]);
-      return json({ app: slug, status: ok ? "live" : "starting", version: a.live, address: a.url, connect: a.url + "/mcp", openChanges: changes.rows, shipped: shipped.rows, ...(!ok && { note: `${SWITCH}; check again shortly.` }) });
+      const kitBehind = diff(await filesOf(a.live), withKit(await filesOf(a.live), TEMPLATE)).length > 0;
+      if (a.paused_at) return json({ app: slug, status: "paused", why: a.paused_why, address: a.url, note: "Grove has paused this app. export_app still gives its code and information." });
+      return json({ app: slug, status: ok ? "live" : "starting", version: a.live, kit: kitBehind ? "a newer kit is available: update_kit" : "up to date", address: a.url, connect: a.url + "/mcp", openChanges: changes.rows, shipped: shipped.rows, ...(!ok && { note: `${SWITCH}; check again shortly.` }) });
     },
   );
 
@@ -349,26 +463,28 @@ function tools(server: McpServer, ctx: Ctx) {
       await mustAgree();
       changeName(change);
       const { rows: [ch] } = await pool.query("select * from changes where app = $1 and name = $2", [slug, change]);
-      const files = { ...(await filesOf(ch ? ch.version : a.live)) };
-      for (const f of writes) {
-        if (f.path.startsWith("/") || f.path.includes("..") || f.path.includes("\\")) throw new Error(`Bad path: ${f.path}`);
-        if (PROTECTED.some((p) => p.test(f.path))) throw new Error(`${f.path} belongs to MAPLE and can't be changed here.`);
-        if (f.content?.includes("\0")) throw new Error(`${f.path} isn't a text file.`);
-        if (f.path === "maple.json" && f.content !== null) JSON.parse(f.content);
-        if (f.content === null) delete files[f.path];
-        else files[f.path] = f.content;
-      }
-      if (Object.keys(files).length > MAX_FILES || Object.values(files).reduce((n, c) => n + c.length, 0) > MAX_TOTAL) throw new Error("That makes the app too big for Grove. Remove some files.");
-      const archive = await built(files);
-      const version = await save(slug, files, message, person.email);
-      const branch = ch?.branch_id ?? (await createBranch(a.neon_project_id, `preview-${change}`, a.branch_id));
-      await pool.query(
-        "insert into changes (app, name, version, base, branch_id) values ($1, $2, $3, $4, $5) on conflict (app, name) do update set version = $3, branch_id = $5, updated_at = now()",
-        [slug, change, version, a.live, branch],
-      );
-      const url = await putUp(a, branch, archive, version);
-      await pool.query("update changes set url = $3 where app = $1 and name = $2", [slug, change, url]);
-      return json({ change, version, status: "saved", preview: url, previewConnect: url + "/mcp", next: `${SWITCH}; change_status says when the preview shows this version. Show the person the preview, and ship_change when they say so.` });
+      const files = applyWrites(await filesOf(ch ? ch.version : a.live), writes);
+      return json(await preview(a, change, ch, files, message));
+    },
+  );
+
+  server.registerTool(
+    "update_kit",
+    {
+      title: "Bring an app's kit up to date",
+      description:
+        "Every app carries its own copy of the MAPLE kit (sign-in, the assistant connection, people, requests, email). This puts the newest kit into an app as a change called kit-update, checked and previewed like any other; nothing the maker wrote is touched. Ship it with ship_change once the preview works. Says so if the app is already up to date.",
+      inputSchema: { app: z.string() },
+    },
+    async ({ app: slug }) => {
+      const a = await appFor(ctx, slug);
+      await mustAgree();
+      const live = await filesOf(a.live), files = withKit(live, TEMPLATE);
+      const changed = diff(live, files);
+      if (!changed.length) return json({ app: slug, kit: "up to date" });
+      tooBig(files);
+      const { rows: [ch] } = await pool.query("select * from changes where app = $1 and name = 'kit-update'", [slug]);
+      return json({ ...(await preview(a, "kit-update", ch, files, "Bring the MAPLE kit up to date")), filesChanged: changed });
     },
   );
 
@@ -406,6 +522,7 @@ function tools(server: McpServer, ctx: Ctx) {
     async ({ app: slug, change }) => {
       const a = await appFor(ctx, slug);
       await mustAgree();
+      notPaused(a);
       const ch = await changeFor(slug, change);
       let files = await filesOf(ch.version), version: string = ch.version;
       if (ch.base !== a.live) {
@@ -450,6 +567,7 @@ function tools(server: McpServer, ctx: Ctx) {
     },
     async ({ app: slug }) => {
       const a = await appFor(ctx, slug);
+      notPaused(a);
       const { rows } = await pool.query("select id, message from versions where app = $1 and shipped_at is not null order by shipped_at desc, id desc limit 2", [slug]);
       if (rows.length < 2) throw new Error("Nothing to roll back to.");
       const files = await filesOf(rows[1].id);
@@ -503,6 +621,22 @@ function routes(app: import("hono").Hono<any>) {
   app.get("/terms", (c) => c.html(termsPage()));
   app.get("/privacy", (c) => c.html(privacyPage()));
 
+  // Anyone can report an app, signed in or not. Reports go to Grove's maker (list_reports) and by email.
+  app.get("/report", (c) => c.html(reportPage(appNamed(c.req.query("app") ?? ""))));
+  app.post("/report", async (c) => {
+    const form = await c.req.parseBody();
+    const typed = String(form.app ?? ""), what = String(form.what ?? "").trim(), from = String(form.email ?? "").trim();
+    if (!typed.trim() || what.length < 5) return c.html(reportPage(appNamed(typed), "Please say which app and what is wrong."), 400);
+    await init();
+    const { rows: [a] } = await pool.query("select slug, url from apps where slug = $1", [appNamed(typed)]);
+    if (!a) return c.html(reportPage(typed.trim().slice(0, 200), "We couldn't find an app with that name. Check the address and try again."), 404);
+    if (await report(pool, a.slug, what, from || "someone who didn't leave an email")) {
+      const { rows } = await pool.query("select email from maple_people where role = 'maker'");
+      waitUntil(email(rows.map((r) => r.email), `Report about ${a.slug}`, `${what.slice(0, 2000)}\n\nApp: ${a.url}\nFrom: ${from || "no email given"}\n\nlist_reports in Grove shows all open reports; pause_app takes an app offline.`, from || undefined).catch(() => false));
+    }
+    return c.html(reportPage("", "Thank you. Your report has been sent and a person will read it."));
+  });
+
   app.post("/join", async (c) => {
     const body = await c.req.json<{ email?: unknown; idea?: unknown }>().catch(() => ({}) as { email?: unknown; idea?: unknown });
     const address = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
@@ -530,7 +664,15 @@ function routes(app: import("hono").Hono<any>) {
     const body = await c.req.text();
     if (!verified(body, c.req.header("stripe-signature"))) return c.json({ error: "Bad signature." }, 400);
     await init();
-    await onEvent(pool, JSON.parse(body));
+    const whose = await onEvent(pool, JSON.parse(body));
+    // The plan decides whether the person's apps carry the line about Grove, so put them up again. Not worth making Stripe wait.
+    if (whose)
+      waitUntil(
+        (async () => {
+          const { rows } = await pool.query("select * from apps where makers[1] = $1 and status <> 'creating'", [whose]);
+          for (const a of rows) await putUpAgain(a).catch((e) => console.error(`putting ${a.slug} up again:`, e));
+        })(),
+      );
     return c.json({ received: true });
   });
 
@@ -543,6 +685,7 @@ function routes(app: import("hono").Hono<any>) {
     if (!a || !timingSafeEqual(Buffer.from(a.secret_hash), Buffer.from(want))) return c.json({ error: "Unknown app." }, 401);
     const { subject, text, replyTo } = await c.req.json<{ subject: string; text: string; replyTo?: string }>();
     if (typeof subject !== "string" || typeof text !== "string") return c.json({ error: "subject and text are required." }, 400);
+    if (!(await mayNotify(pool, a.slug))) return c.json({ error: "This app has sent all the emails it can today." }, 429);
     const sent = await email(a.makers, subject.slice(0, 200), text.slice(0, 20_000), replyTo);
     return c.json({ sent }, sent ? 200 : 502);
   });

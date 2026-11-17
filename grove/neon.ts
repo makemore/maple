@@ -35,17 +35,19 @@ export default defineConfig({
         // Apps get <name>.<this domain>. Its DNS needs a wildcard CNAME to Neon's custom-domain target. Unset: Neon's own addresses.
         APPS_DOMAIN: { value: process.env.APPS_DOMAIN, required: false },
         GROVE_MAX_APPS: { value: process.env.GROVE_MAX_APPS, required: false },
+        // Stripe and Postmark keep the values already deployed when a deploy doesn't give them, so deploying from a
+        // machine without those keys can't switch payments or email off.
         // Payments (all three, or none for free only): a Stripe secret key, the monthly price of the paid plan, and the
         // signing secret of a webhook to <site>/stripe/webhook for checkout.session.completed and customer.subscription.*.
-        STRIPE_SECRET_KEY: { value: process.env.STRIPE_SECRET_KEY, required: false },
-        STRIPE_PRICE_ID: { value: process.env.STRIPE_PRICE_ID, required: false },
-        STRIPE_WEBHOOK_SECRET: { value: process.env.STRIPE_WEBHOOK_SECRET, required: false },
+        STRIPE_SECRET_KEY: { value: process.env.STRIPE_SECRET_KEY, required: false, onUndefined: "skip" },
+        STRIPE_PRICE_ID: { value: process.env.STRIPE_PRICE_ID, required: false, onUndefined: "skip" },
+        STRIPE_WEBHOOK_SECRET: { value: process.env.STRIPE_WEBHOOK_SECRET, required: false, onUndefined: "skip" },
         PAID_APPS_PER_PERSON: { value: process.env.PAID_APPS_PER_PERSON, required: false },
         // Who runs this Grove, for its terms and privacy pages. Until both are set the pages are drafts and nobody is asked to agree.
         GROVE_LEGAL_NAME: { value: process.env.GROVE_LEGAL_NAME, required: false },
         GROVE_CONTACT_EMAIL: { value: process.env.GROVE_CONTACT_EMAIL, required: false },
         // Loop and notify emails.
-        POSTMARK_TOKEN: { value: process.env.POSTMARK_TOKEN, required: false },
+        POSTMARK_TOKEN: { value: process.env.POSTMARK_TOKEN, required: false, onUndefined: "skip" },
         PUBLIC_URL: { value: process.env.PUBLIC_URL, required: false },
         APPS_PER_PERSON: { value: process.env.APPS_PER_PERSON, required: false },
         // For tests only; acts as Grove's maker. Leave unset in normal use.

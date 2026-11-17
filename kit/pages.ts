@@ -116,6 +116,16 @@ $("code-form").addEventListener("submit", async (e) => {
 });
 `;
 
+/**
+ * The line free apps made with Grove carry at the foot of their pages: what Grove is, and where to report a problem.
+ * Styled inline so it looks the same on any page it is added to.
+ */
+export const groveBadge = (grove: string, slug: string) =>
+  `<aside aria-label="About this app" style="margin:32px auto 16px;max-width:640px;padding:0 16px;text-align:center;font:14px/1.5 system-ui,sans-serif;color:#5b6b5e">Made with <a href="${esc(grove)}/?from=${encodeURIComponent(slug)}" style="color:inherit;font-weight:600">Grove</a>: little apps you make by asking your AI assistant. <a href="${esc(grove)}/report?app=${encodeURIComponent(slug)}" style="color:inherit">Report this app</a></aside>`;
+
+/** Adds the badge to a page, before the end of its body. */
+export const withBadge = (html: string, badge: string) => (html.includes("</body>") ? html.replace("</body>", badge + "\n</body>") : html + badge);
+
 export const signInPage = (title: string, authUrl: string) =>
   shell(
     `Sign in to ${title}`,

@@ -47,6 +47,12 @@ assert.equal((await fetch(live.connect, { method: "POST" })).status, 401, "the c
 const meta = await (await fetch(new URL("/.well-known/oauth-protected-resource/mcp", live.address))).json();
 assert.equal(meta.resource, live.connect, "OAuth resource matches the connection address");
 
+step("a new app has the newest kit and nothing to agree to that it hasn't");
+assert.equal(live.kit, "up to date");
+assert.equal((await call("update_kit", { app: slug })).kit, "up to date");
+assert.equal((await call("accept_terms", { agree: true })).agreed, true);
+for (const page of ["/terms", "/privacy"]) assert.equal((await fetch(GROVE + page)).status, 200, page);
+
 step("write_files: broken code is refused with the problem");
 const [{ content: appTs }] = (await call("read_files", { app: slug, paths: ["src/app.ts"] })).files;
 await assert.rejects(call("write_files", { app: slug, change: "add-notes", message: "Broken", files: [{ path: "src/app.ts", content: appTs.replace("void z;", "const n: number = 'five'; void n; void z;") }] }), /src\/app\.ts\(\d+,\d+\).*not assignable/s);
