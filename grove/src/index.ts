@@ -109,7 +109,7 @@ async function built(files: Files) {
 async function putUp(a: any, branch: string, archive: Record<string, string>, version: string, publicUrl?: string, first = false) {
   // Free apps carry a line about Grove at the foot of their pages; the paid plan takes it off.
   const free = (await planFor(pool, a.makers[0])).plan === "free";
-  const env = { GROVE_URL: site, GROVE_APP_SECRET: appSecret(a.slug), MAPLE_COMMIT: String(version), ...(publicUrl && { PUBLIC_URL: publicUrl }), ...(free && { GROVE_BADGE: "1" }) };
+  const env = { GROVE_URL: site, GROVE_APP_SECRET: appSecret(a.slug), MAPLE_COMMIT: String(version), ...(publicUrl && { PUBLIC_URL: publicUrl }), ...(free && { GROVE_BADGE: a.slug }) };
   const { address } = await upload({ key: process.env.NEON_API_KEY!, project: a.neon_project_id, branch }, archive, env);
   const url = publicUrl ?? address;
   if (first && publicUrl && publicUrl !== address) await registerDomain(a.neon_project_id, branch, new URL(publicUrl).host);

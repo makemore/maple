@@ -296,9 +296,9 @@ export function createMapleApp(def: AppDef) {
     await next();
   });
 
-  // Free apps hosted by Grove say so at the foot of every page. Grove sets GROVE_BADGE when it deploys them.
+  // Free apps hosted by Grove say so at the foot of every page. Grove sets GROVE_BADGE to the app's name when it deploys them.
   if (process.env.GROVE_BADGE && process.env.GROVE_URL) {
-    const badge = groveBadge(process.env.GROVE_URL, def.slug);
+    const badge = groveBadge(process.env.GROVE_URL, process.env.GROVE_BADGE);
     app.use("*", async (c, next) => {
       await next();
       if (!c.res.headers.get("content-type")?.startsWith("text/html") || !c.res.body) return;

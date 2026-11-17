@@ -35,6 +35,9 @@ async function until<T>(what: string, f: () => Promise<T>, done: (v: T) => boole
 const t0 = Date.now();
 const step = (s: string) => console.log(`\n[${Math.round((Date.now() - t0) / 1000)}s] ${s}`);
 
+step("waiting for the newest Grove to answer");
+await until("Grove's newest tools", () => call("list_reports").then(() => true, () => false), Boolean, 4);
+
 step(`create_app ${slug}`);
 const made = await call("create_app", { name: slug, title: "E2E Notes", description: "A test app that keeps short notes for a team.", users: [] });
 console.log(made);
@@ -100,6 +103,44 @@ assert.equal(zipped.status, 200);
 assert.equal(new Uint8Array(await zipped.arrayBuffer())[0], 0x50, "a zip");
 assert.match(out.database, /^postgres(ql)?:\/\//);
 assert.equal((await fetch(link.replace(/sig=.{4}/, "sig=0000"))).status, 403, "a changed link is refused");
+
+step("a free app carries the line about Grove, with a way to report it");
+const front = await (await fetch(back.address)).text();
+assert.match(front, /Made with <a href="[^"]+\/\?from=/);
+assert.match(front, new RegExp(`/report\\?app=${slug}"`));
+assert.equal((await fetch(`${GROVE}/report?app=${slug}`)).status, 200);
+
+step("a report from the public reaches Grove's maker");
+const sent = await fetch(`${GROVE}/report`, { method: "POST", body: new URLSearchParams({ app: `https://${slug}.grovehelper.com/x`, what: "E2E test report: please ignore." }) });
+assert.equal(sent.status, 200);
+const mine = (await call("list_reports")).reports.filter((r: any) => r.app === slug);
+assert.equal(mine.length, 1);
+assert.equal((await call("close_report", { id: Number(mine[0].id) })).closed, true);
+assert.equal((await fetch(`${GROVE}/report`, { method: "POST", body: new URLSearchParams({ app: "no-such-app-here", what: "Nothing to see." }) })).status, 404);
+
+step("code that asks for a password is saved, and filed for a person to look at");
+await call("write_files", { app: slug, change: "odd-page", message: "A page with a password box", files: [{ path: "src/odd.ts", content: "export const odd = `<form><input type=\"password\" name=\"p\"></form>`;\n" }] });
+const flagged = (await call("list_reports")).reports.filter((r: any) => r.app === slug);
+assert.equal(flagged.length, 1);
+assert.equal(flagged[0].reporter, "Grove check");
+assert.match(flagged[0].what, /src\/odd\.ts has a password box/);
+
+step("pause_app: the app goes offline, can't be changed, and can still be exported");
+await call("pause_app", { app: slug, why: "E2E test of pausing." });
+assert.equal((await call("app_status", { app: slug })).status, "paused");
+await assert.rejects(call("write_files", { app: slug, change: "odd-page", message: "More", files: [{ path: "src/more.ts", content: "export {};\n" }] }), /paused by Grove: E2E test of pausing/);
+await assert.rejects(call("ship_change", { app: slug, change: "odd-page" }), /paused by Grove/);
+assert.ok((await call("export_app", { app: slug })).download);
+await until("the paused page", () => fetch(back.address).then((r) => r.status), (status) => status === 503);
+assert.match(await (await fetch(back.address)).text(), /This app is paused/);
+
+step("resume_app: it comes back as it was");
+await call("resume_app", { app: slug });
+await until("the app again", () => call("app_status", { app: slug }), (s) => s.status === "live");
+// The paused page and the app can both answer for a moment while Neon switches over.
+await until("the app's own page", () => fetch(back.address).then((r) => r.status), (status) => status === 200);
+await call("drop_change", { app: slug, change: "odd-page" });
+await call("close_report", { id: Number(flagged[0].id) });
 
 if (process.env.KEEP) step(`done: ${slug} kept at ${back.address}`);
 else {
