@@ -108,8 +108,30 @@ code { background: var(--card); border: 1px solid var(--line); border-radius: .4
 .copy [role=status] { font-size: 1rem; color: var(--soft); }
 .btn.small { padding: .45rem .9rem; font-size: 1rem; }
 .note { color: var(--soft); font-size: 1rem; }
+.doc { max-width: 44rem; padding-block: 2rem 4rem; }
+.doc h2 { font-size: 1.3rem; margin-top: 2rem; }
+.doc li { margin-bottom: .4rem; }
+.draft { background: var(--tint); border: 1px solid var(--line); border-radius: .75rem; padding: .75rem 1rem; }
 footer { padding-block: 2rem; color: var(--soft); font-size: 1rem; border-top: 1px solid var(--line); }
 `;
+
+/** A plain page in Grove's look, for the terms and privacy pages. */
+export const shell = (title: string, body: string) => `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${title}</title>
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<style>${CSS}</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top"><a class="logo" href="/">${ICON_SVG.replace("<svg ", '<svg aria-hidden="true" ')}Grove</a></header>
+</div>
+<main class="wrap doc">${body}</main>
+</body>
+</html>`;
 
 const claudeLink = (connect: string) => `https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=Grove&connectorUrl=${encodeURIComponent(connect)}`;
 
@@ -277,7 +299,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan) => `<!d
 
 <footer>
   <div class="wrap">
-    <p>Grove makes MAPLE apps. This site is one too. <a href="#get">About MAPLE</a> · <a href="/account">Sign in</a></p>
+    <p>Grove makes MAPLE apps. This site is one too. <a href="#get">About MAPLE</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/account">Sign in</a></p>
   </div>
 </footer>
 <script type="module">${SCRIPT}</script>

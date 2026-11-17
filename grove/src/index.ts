@@ -8,6 +8,7 @@ import { createMapleApp, z, type Ctx, type Manifest } from "../../kit/kit.ts";
 import { BILLING_SCHEMA, billingOn, checkout, onEvent, planFor, portal, priceText, verified } from "./billing.ts";
 import { BuildError, bundle, check, upload, zip, type Files } from "./build.ts";
 import { connectionUri, createBranch, createProject, deleteBranch, deleteProject, registerDomain, setUpSignIn } from "./neon.ts";
+import { LEGAL_SCHEMA, TERMS_VERSION, agree, agreed, privacyPage, termsOn, termsPage } from "./legal.ts";
 import { sitePage, type PaidPlan } from "./site.ts";
 import { TEMPLATE } from "./template-files.ts";
 
@@ -27,7 +28,7 @@ create table if not exists changes (
   app text not null, name text not null, version bigint not null, base bigint not null, branch_id text, url text,
   updated_at timestamptz not null default now(), primary key (app, name));
 create table if not exists waitlist (
-  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}`;
+  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}`;
 
 // The kit stays as MAPLE made it; features go everywhere else.
 const PROTECTED = [/^src\/maple\//, /^package-lock\.json$/];
@@ -52,7 +53,9 @@ Use create_app when someone wants a new app, then build the features they descri
 read AGENTS.md and src/app.ts of the app first, make the change with write_files (it checks the code and
 puts up a preview; if it reports problems, fix them and write again), show the preview, and ship_change only
 when the person says so. After create_app, tell the person how to add the app to Claude
-(Settings, Connectors, Add custom connector, paste the connection address).`;
+(Settings, Connectors, Add custom connector, paste the connection address).
+If a tool says the person must agree to the terms first, give them both links, ask plainly whether they agree,
+and call accept_terms only after they say yes themselves. Never agree for them.`;
 
 // The paid plan as the site shows it: read from Stripe now and then, so the page itself never waits on Stripe.
 let paid: PaidPlan | undefined, paidAt = 0;
@@ -139,6 +142,27 @@ const SWITCH = "Neon can take a minute or two to switch to a new version";
 function tools(server: McpServer, ctx: Ctx) {
   const { json, person } = ctx;
 
+  /** Making, changing and paying need the person's agreement to the current terms. */
+  const mustAgree = async () => {
+    if (!(await agreed(pool, person.email)))
+      throw new Error(`Before this, the person needs to agree to Grove's terms (${site}/terms) and privacy notice (${site}/privacy). Show them both links, ask if they agree, and when they say yes call accept_terms.`);
+  };
+
+  server.registerTool(
+    "accept_terms",
+    {
+      title: "Agree to Grove's terms",
+      description: "Records that the person agrees to Grove's terms and privacy notice. Only call this after showing them both links and after they have clearly said yes themselves in this chat. Never call it on their behalf.",
+      inputSchema: { agree: z.literal(true).describe("true only when the person has just said they agree") },
+    },
+    async () => {
+      await init();
+      if (!termsOn()) return json({ agreed: true, note: "There is nothing to agree to yet." });
+      await agree(pool, person.email);
+      return json({ agreed: true, version: TERMS_VERSION, terms: `${site}/terms`, privacy: `${site}/privacy` });
+    },
+  );
+
   server.registerTool(
     "create_app",
     {
@@ -155,6 +179,7 @@ function tools(server: McpServer, ctx: Ctx) {
     },
     async ({ name, title, description, users, audience }) => {
       await init();
+      await mustAgree();
       if (RESERVED.has(name)) throw new Error(`${name} can't be used as a name. Pick another.`);
       const { rows: [{ mine, total }] } = await pool.query("select count(*) filter (where $1 = any(makers))::int mine, count(*)::int total from apps", [person.email]);
       const plan = await planFor(pool, person.email);
@@ -242,6 +267,7 @@ function tools(server: McpServer, ctx: Ctx) {
     async () => {
       await init();
       if (!billingOn()) throw new Error("There is no paid plan yet.");
+      await mustAgree();
       const p = await planFor(pool, person.email);
       if (p.plan === "paid") throw new Error("Already on the paid plan. manage_billing changes or cancels it.");
       return json({ payHere: await checkout(person.email, site, p.customer), price: await priceText(), next: "Once paid, the plan tool shows the paid plan within a minute." });
@@ -320,6 +346,7 @@ function tools(server: McpServer, ctx: Ctx) {
     },
     async ({ app: slug, change, message, files: writes }) => {
       const a = await appFor(ctx, slug);
+      await mustAgree();
       changeName(change);
       const { rows: [ch] } = await pool.query("select * from changes where app = $1 and name = $2", [slug, change]);
       const files = { ...(await filesOf(ch ? ch.version : a.live)) };
@@ -378,6 +405,7 @@ function tools(server: McpServer, ctx: Ctx) {
     },
     async ({ app: slug, change }) => {
       const a = await appFor(ctx, slug);
+      await mustAgree();
       const ch = await changeFor(slug, change);
       let files = await filesOf(ch.version), version: string = ch.version;
       if (ch.base !== a.live) {
@@ -472,6 +500,9 @@ function tools(server: McpServer, ctx: Ctx) {
 // Apps send their loop emails here, so they never hold an email key. Each app proves itself with its own secret.
 function routes(app: import("hono").Hono<any>) {
   // The website's invite form. Open to anyone, so it only ever stores an email and a short note, and stops at 200 a day.
+  app.get("/terms", (c) => c.html(termsPage()));
+  app.get("/privacy", (c) => c.html(privacyPage()));
+
   app.post("/join", async (c) => {
     const body = await c.req.json<{ email?: unknown; idea?: unknown }>().catch(() => ({}) as { email?: unknown; idea?: unknown });
     const address = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";

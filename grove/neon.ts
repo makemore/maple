@@ -41,6 +41,9 @@ export default defineConfig({
         STRIPE_PRICE_ID: { value: process.env.STRIPE_PRICE_ID, required: false },
         STRIPE_WEBHOOK_SECRET: { value: process.env.STRIPE_WEBHOOK_SECRET, required: false },
         PAID_APPS_PER_PERSON: { value: process.env.PAID_APPS_PER_PERSON, required: false },
+        // Who runs this Grove, for its terms and privacy pages. Until both are set the pages are drafts and nobody is asked to agree.
+        GROVE_LEGAL_NAME: { value: process.env.GROVE_LEGAL_NAME, required: false },
+        GROVE_CONTACT_EMAIL: { value: process.env.GROVE_CONTACT_EMAIL, required: false },
         // Loop and notify emails.
         POSTMARK_TOKEN: { value: process.env.POSTMARK_TOKEN, required: false },
         PUBLIC_URL: { value: process.env.PUBLIC_URL, required: false },
