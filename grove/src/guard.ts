@@ -16,6 +16,8 @@ create table if not exists notified (app text not null, day date not null defaul
 export const buildsPerHour = (paid: boolean) => Number((paid ? process.env.PAID_BUILDS_PER_HOUR : process.env.BUILDS_PER_HOUR) ?? (paid ? 120 : 30));
 export const emailsPerDay = () => Number(process.env.APP_EMAILS_PER_DAY ?? 50);
 const REPORTS_PER_DAY = 100;
+/** Neon allows ten database branches per project on its free plan: the live one, and one per open change. */
+export const MAX_OPEN_CHANGES = 6;
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 

@@ -9,7 +9,7 @@ import { BILLING_SCHEMA, billingOn, checkout, onEvent, planFor, portal, priceTex
 import { BuildError, bundle, check, upload, zip, type Files } from "./build.ts";
 import { connectionUri, createBranch, createProject, deleteBranch, deleteProject, registerDomain, setUpSignIn } from "./neon.ts";
 import { waitUntil } from "@neon/functions";
-import { GUARD_SCHEMA, appNamed, blockedWhy, concerns, mayNotify, pausedArchive, report, reportPage, underBuildLimit } from "./guard.ts";
+import { GUARD_SCHEMA, MAX_OPEN_CHANGES, appNamed, blockedWhy, concerns, mayNotify, pausedArchive, report, reportPage, underBuildLimit } from "./guard.ts";
 import { LEGAL_SCHEMA, TERMS_VERSION, agree, agreed, privacyPage, termsOn, termsPage } from "./legal.ts";
 import { sitePage, type PaidPlan } from "./site.ts";
 import { CHANGE, MAX_FILE, RESERVED, SLUG, applyWrites, diff, merge, tooBig, withKit } from "./code.ts";
@@ -148,6 +148,11 @@ function tools(server: McpServer, ctx: Ctx) {
   /** Checks and saves the files as the newest version of a change, and puts it up as a preview on its own copy of the database. */
   const preview = async (a: any, change: string, ch: any, files: Files, message: string) => {
     notPaused(a);
+    // Each open change has a preview with its own copy of the database, and Neon allows ten copies per app.
+    if (!ch) {
+      const { rows: [{ n }] } = await pool.query("select count(*)::int n from changes where app = $1", [a.slug]);
+      if (n >= MAX_OPEN_CHANGES) throw new Error(`${a.slug} already has ${n} open changes, which is the most an app can have. Ship or drop one first (app_status lists them).`);
+    }
     if (!ctx.isMaker) await underBuildLimit(pool, person.email, (await planFor(pool, person.email)).plan === "paid");
     const archive = await built(files);
     const version = await save(a.slug, files, message, person.email);
