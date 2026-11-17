@@ -89,6 +89,8 @@ header.top { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; pad
 .logo svg { width: 2.25rem; height: 2.25rem; }
 nav ul { display: flex; gap: .25rem 1.25rem; flex-wrap: wrap; list-style: none; margin: 0; padding: 0; font-size: 1rem; }
 nav a { display: inline-block; padding: .4rem 0; text-decoration: none; color: var(--soft); font-weight: 600; }
+.gh { display: inline-flex !important; align-items: center; gap: .5rem; }
+nav a.gh { color: var(--ink); }
 nav a:hover { color: var(--brand); text-decoration: underline; }
 section { padding-block: clamp(3rem, 8vw, 5.5rem); }
 .kicker { font-size: .95rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--brand); margin: 0 0 .6rem; }
@@ -210,6 +212,9 @@ export const shell = (title: string, body: string) => `<!doctype html>
 </body>
 </html>`;
 
+// GitHub's mark, drawn in the text colour around it.
+const GITHUB_SVG = `<svg aria-hidden="true" viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>`;
+
 const claudeLink = (connect: string) => `https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=Grove&connectorUrl=${encodeURIComponent(connect)}`;
 
 export type PaidPlan = { price: string; apps: number };
@@ -252,7 +257,8 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
         <li><a href="#yours">It's yours</a></li>
         <li><a href="#price">Price</a></li>
         <li><a href="#connect">Add Grove</a></li>
-        <li><a href="/account">Sign in</a></li>
+        <li><a href="/account">Sign in</a></li>${repo ? `
+        <li><a class="gh" href="${repo}" aria-label="Grove and MAPLE on GitHub">${GITHUB_SVG}</a></li>` : ""}
       </ul>
     </nav>
   </header>
@@ -383,7 +389,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
         <li><h3>Take the code</h3><p>Ask Grove for a download and you get the whole app as files any developer can read and run.</p></li>
         <li><h3>Take the information</h3><p>Each app has its own database, and you can take a full copy of it at any time.</p></li>
         <li><h3>Run it elsewhere</h3><p>An app is a standard MAPLE app. It doesn't need Grove to keep working, so you can host it yourself.</p></li>
-        <li><h3>${repo ? "Open source" : "An open format"}</h3><p>${repo ? `Grove and MAPLE are open source under the MIT licence. Read the code, run your own Grove, or build on it. <a href="${repo}">See it on GitHub</a>.` : "MAPLE is an open format with a published set of rules, so an app made here isn't tied to this company or this site."}</p></li>
+        <li><h3>${repo ? "Open source" : "An open format"}</h3><p>${repo ? `Grove and MAPLE are open source under the MIT licence. Read the code, run your own Grove, or build on it.</p><p><a class="btn small gh" href="${repo}">${GITHUB_SVG} Grove and MAPLE on GitHub</a>` : "MAPLE is an open format with a published set of rules, so an app made here isn't tied to this company or this site."}</p></li>
       </ul>
     </div>
   </section>

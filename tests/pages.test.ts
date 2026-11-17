@@ -63,7 +63,8 @@ test("front page: only says open source when there is public code to point at", 
   assert.doesNotMatch(closed, /github/i);
   const open = sitePage(MCP, 5, undefined, "https://github.com/example/maple");
   assert.match(open, /open source under the MIT licence/);
-  assert.equal(open.match(/href="https:\/\/github\.com\/example\/maple"/g)?.length, 2, "in the section and in the footer");
+  assert.equal(open.match(/href="https:\/\/github\.com\/example\/maple"/g)?.length, 3, "in the menu, the section and the footer");
+  assert.match(open, /aria-label="Grove and MAPLE on GitHub"/, "the icon in the menu has a name");
   sound(open);
 });
 
