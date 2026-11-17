@@ -31,8 +31,22 @@ interface, the database holds what matters, and the loop is how the app grows.
 - [plans/grove-and-code-tools.md](plans/grove-and-code-tools.md): plan for apps that edit their own
   code over MCP, and Grove, a parent connection that creates new apps.
 
-Status: draft 0.1. Describes the format only; no tooling yet.
+- [kit/](kit/): the MAPLE kit, the code every app carries for the five parts.
+- [template/](template/): the app every new app starts from.
+- [grove/](grove/): Grove, the service that makes MAPLE apps from a chat. See [grove/README.md](grove/README.md).
+- [tests/](tests/): `npm test` runs them.
+
+Status: draft 0.1.
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+Two licences, by folder:
+
+| What | Where | Licence |
+|---|---|---|
+| MAPLE: the format, the kit, the template, the examples, and everything else outside `grove/` | this repository | MIT, see [LICENSE](LICENSE) |
+| Grove: the service that makes and hosts apps | [`grove/`](grove/) | AGPL 3.0, see [grove/LICENSE](grove/LICENSE) |
+
+MAPLE is MIT because its code is copied into every app, and those apps belong to whoever makes them,
+to use however they like. Grove is AGPL so that anyone can run their own, and anyone who runs a
+changed version as a service shares what they changed.

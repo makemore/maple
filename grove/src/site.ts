@@ -389,7 +389,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
         <li><h3>Take the code</h3><p>Ask Grove for a download and you get the whole app as files any developer can read and run.</p></li>
         <li><h3>Take the information</h3><p>Each app has its own database, and you can take a full copy of it at any time.</p></li>
         <li><h3>Run it elsewhere</h3><p>An app is a standard MAPLE app. It doesn't need Grove to keep working, so you can host it yourself.</p></li>
-        <li><h3>${repo ? "Open source" : "An open format"}</h3><p>${repo ? `Grove and MAPLE are open source under the MIT licence. Read the code, run your own Grove, or build on it.</p><p><a class="btn small gh" href="${repo}">${GITHUB_SVG} Grove and MAPLE on GitHub</a>` : "MAPLE is an open format with a published set of rules, so an app made here isn't tied to this company or this site."}</p></li>
+        <li><h3>${repo ? "Open source" : "An open format"}</h3><p>${repo ? `Both are open source. MAPLE, the part every app is made from, is under the MIT licence, so your apps are yours without conditions. Grove itself is under the AGPL: run your own, and share what you change.</p><p><a class="btn small gh" href="${repo}">${GITHUB_SVG} Grove and MAPLE on GitHub</a>` : "MAPLE is an open format with a published set of rules, so an app made here isn't tied to this company or this site."}</p></li>
       </ul>
     </div>
   </section>

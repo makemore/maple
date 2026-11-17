@@ -2,6 +2,7 @@
   "name": "maple",
   "private": true,
   "type": "module",
+  "license": "SEE LICENSE IN README.md",
   "scripts": {
     "bundle": "node scripts/bundle-template.ts",
     "test": "npm run bundle && tsc --noEmit && node --test tests/",
