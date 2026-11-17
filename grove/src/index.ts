@@ -178,14 +178,14 @@ function tools(server: McpServer, ctx: Ctx) {
     "pause_app",
     {
       title: "Pause an app",
-      description: "For Grove's maker: takes an app offline straight away and shows a 'paused' page in its place, for an app that is harming people or breaking the terms. Its code and information are kept, and its maker can still download them, but can't change or ship it. Give the reason in words its maker can read. Confirm first.",
+      description: "For Grove's maker: takes an app offline and shows a 'paused' page in its place (Neon takes a minute or two to switch, so the app can still answer for that long), for an app that is harming people or breaking the terms. Its code and information are kept, and its maker can still download them, but can't change or ship it. Give the reason in words its maker can read. Confirm first.",
       inputSchema: { app: z.string(), why: z.string().min(5).max(500) },
     },
     async ({ app: slug, why }) => {
       makerOnly();
       const a = await appFor(ctx, slug);
       await pause(a, why);
-      return json({ paused: slug, why, makers: a.makers, next: "resume_app puts it back. Neon can take a minute or two to switch." });
+      return json({ paused: slug, why, makers: a.makers, next: "The app can keep answering for a minute or two while Neon switches to the paused page. resume_app puts it back; leave a few minutes between pausing and resuming." });
     },
   );
 
