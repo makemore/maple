@@ -8,6 +8,6 @@
   "auth": { "method": "email-code", "allowed": [] },
   "mcp": { "audience": "everyone" },
   "loop": { "tool": "ask_chris" },
-  "email": { "from": "Grove <grove@foundrystudio.dev>", "provider": "postmark" },
+  "email": { "from": "Grove <grove@makewithgrove.com>", "provider": "postmark" },
   "database": {}
 }

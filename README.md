@@ -28,8 +28,6 @@ interface, the database holds what matters, and the loop is how the app grows.
   (`club.json`) and an internal tool for a technical team (`team-tools.json`).
 - [PROVIDERS.md](PROVIDERS.md): how each part maps onto Neon, Google Cloud, or a local Docker setup.
 
-- [plans/grove-and-code-tools.md](plans/grove-and-code-tools.md): plan for apps that edit their own
-  code over MCP, and Grove, a parent connection that creates new apps.
 
 - [kit/](kit/): the MAPLE kit, the code every app carries for the five parts.
 - [template/](template/): the app every new app starts from.
