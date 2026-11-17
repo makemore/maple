@@ -51,6 +51,8 @@ export interface AppDef {
   tools?: (server: McpServer, ctx: Ctx) => void;
   /** Extra web routes (behind sign-in if the path starts with /api/). */
   routes?: (app: Hono<Env>, pool: Pool) => void;
+  /** The app's own front page, as HTML. With one, the signed-in page (connect steps, requests) moves to /account. */
+  home?: (info: { title: string; site: string; mcpUrl: string }) => string;
 }
 
 type Env = McpAuthVariables & { Variables: { person?: Person } };
@@ -295,7 +297,14 @@ export function createMapleApp(def: AppDef) {
   });
 
   const authUrl = process.env.NEON_AUTH_BASE_URL ?? "";
-  app.get("/", (c) => c.html(homePage(title, authUrl, mcpUrl), 200, page));
+  const signedInPage = (c: Context) => c.html(homePage(title, authUrl, mcpUrl), 200, page);
+  if (def.home) {
+    const home = def.home;
+    app.get("/", (c) => c.html(home({ title, site, mcpUrl }), 200, { "Content-Security-Policy": "frame-ancestors 'none'" }));
+    app.get("/account", signedInPage);
+  } else {
+    app.get("/", signedInPage);
+  }
   app.get("/auth/sign-in", (c) => c.html(signInPage(title, authUrl), 200, page));
   app.get("/auth/consent", (c) => c.html(consentPage(title, authUrl), 200, page));
   app.get("/icon.svg", () => new Response(ICON_SVG, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" } }));

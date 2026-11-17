@@ -10,9 +10,8 @@ its data lives in Postgres. They can ask the maker for changes from the chat (th
 | `src/app.ts` | This app's tables (`schema`), what the assistant should know (`guide`), its tools, extra routes | Yes: features go here |
 | `src/*.ts` | More of the app's own code, if `app.ts` gets long | Yes |
 | `maple.json` | Name, maker, who can sign in, description | Description and title, yes |
-| `neon.ts` | Function and scheduled jobs | Add jobs, yes |
+| `neon.ts` | Settings for deploying this app yourself with Neon's tools | Rarely |
 | `src/maple/` | The MAPLE kit: sign-in, people, the loop, pages | No: comes from MAPLE |
-| `.github/` | Checks and deploys | No |
 
 ## Adding a feature
 
@@ -24,7 +23,8 @@ its data lives in Postgres. They can ask the maker for changes from the chat (th
 3. Return `json(data)`: it adds the plain-English reminder for the assistant.
 4. Use `ctx.person.email` for who is asking and `ctx.isMaker` for maker-only tools.
 5. Update `guide` so the assistant knows the new feature exists.
-6. Add a test next to it (`src/*.test.ts`, `node:test`), for logic that isn't just SQL.
+6. Import only the app's own files, Node's built-ins, and the packages already in `package.json`.
+   Adding a package to `package.json` does nothing when Grove builds the app.
 
 Example:
 
@@ -47,9 +47,10 @@ export function tools(server: McpServer, { pool, person, json }: Ctx) {
 
 ## Checks and deploys
 
-`npm run check` (types and tests) runs on every push. A push to a `change/<name>` branch deploys a
-preview with its own copy of the database; merging to `main` deploys the live app. The commit
-status `maple/deploy` has the address (or the failing run).
+Grove keeps this code, checks it and deploys it. Saving a change checks the types and imports
+straight away and puts up a preview with its own copy of the database; shipping the change makes it
+the live app. Tests (`src/*.test.ts`) are not run by Grove; `npm run check` runs them if you have
+the code on your own computer.
 
 ## Talking to people
 
