@@ -445,6 +445,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
           <ul>
             <li>Keeping track of things and asking about them</li>
             <li>A simple website with a form, a list or a sign-up behind it</li>
+            <li>Reminders and summaries that send themselves</li>
             <li>A handful of people who trust each other</li>
             <li>Rules that change as you learn what you need</li>
           </ul>
@@ -453,7 +454,6 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
           <h3>Not yet</h3>
           <ul>
             <li>Real card payments. You can build with pretend ones today</li>
-            <li>Work that runs on a timer or in the background. Pretend for now too</li>
             <li>Phone apps you get from an app store</li>
             <li>Medical records, or anything where a mistake could hurt someone</li>
           </ul>
@@ -491,7 +491,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
   <section class="wrap" id="services">
     <p class="kicker">Built in</p>
     <h2>The awkward parts, already done</h2>
-    <p class="intro">Normally these mean opening accounts, copying keys and reading manuals. In Grove your app just asks for them. Email works today. The rest can be built against now in a pretend mode that says clearly nothing real happened, and switch to the real thing as each arrives.</p>
+    <p class="intro">Normally these mean opening accounts, copying keys and reading manuals. In Grove your app just asks for them. Email and background work are real today. The rest can be built against now in a pretend mode that says clearly nothing real happened, and switch to the real thing as each arrives.</p>
     <ul class="cards services">
       ${SERVICE_LIST.map((x) => `<li><h3>${SERVICE_TITLES[x.name]}<span class="tag ${x.real ? "go" : "soon"}">${x.real ? "Ready" : "Pretend for now"}</span></h3><p>${x.what}</p></li>`).join("\n      ")}
     </ul>

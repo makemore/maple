@@ -11,6 +11,8 @@ its own address. Grove is itself a MAPLE app. The hosted one is at [makewithgrov
 - **Builds inside itself.** Code is type-checked and bundled in the function ([`src/build.ts`](src/build.ts)) and refused if it has problems.
 - **Previews, ships, undoes.** Each change gets a preview on its own copy of the database. Shipping combines changes file by file; rolling back makes a new version.
 - **Hands apps over.** `export_app` gives the code as a zip and the address of the database.
+- **Passes apps on.** `give_app` offers an app to another person, such as the client it was made for; `accept_app` makes it theirs.
+- **Does the awkward parts for apps.** Email is sent through Grove ([`src/services.ts`](src/services.ts)), and a one-minute timer wakes any app with background work due. Payments, files, text messages, AI and PDFs answer in a pretend mode for now.
 - **Looks after the service.** Plans and payment through Stripe, terms people agree to, limits, reports, pausing, and a count of how much of a person's assistant allowance the work uses.
 
 ## Running your own

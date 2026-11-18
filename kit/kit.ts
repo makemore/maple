@@ -12,6 +12,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { Pool } from "pg";
 import { z } from "zod";
 import { createServices, type Services } from "./services.ts";
+import { TASKS_SCHEMA, TICK_PATH, createTasks, jobList, tick, type Jobs } from "./tasks.ts";
 import { consentPage, groveBadge, homePage, signInPage, withBadge, ICON_SVG } from "./pages.ts";
 
 export { z };
@@ -42,6 +43,9 @@ export interface Ctx {
   services: Services;
 }
 export type { Services };
+/** What a job gets when it runs: the database and the services. There is no signed-in person. */
+export interface JobCtx { pool: Pool; services: Services }
+export type AppJobs = Jobs<JobCtx>;
 
 export interface AppDef {
   manifest: Manifest;
@@ -55,6 +59,8 @@ export interface AppDef {
   tools?: (server: McpServer, ctx: Ctx) => void;
   /** Extra web routes (behind sign-in if the path starts with /api/). */
   routes?: (app: Hono<Env>, pool: Pool, services: Services) => void;
+  /** Background work: what to do when a job started with services.tasks comes due. Throwing means "try again later". */
+  jobs?: AppJobs;
   /** The app's own front page, as HTML. With one, the signed-in page (connect steps, requests) moves to /account. */
   home?: (info: { title: string; site: string; mcpUrl: string }) => string;
 }
@@ -91,7 +97,7 @@ export function createMapleApp(def: AppDef) {
   let ready: Promise<unknown> | undefined;
   const init = () =>
     (ready ??= (async () => {
-      await pool.query(KIT_SCHEMA);
+      await pool.query(KIT_SCHEMA + TASKS_SCHEMA);
       if (def.schema?.trim()) await pool.query(def.schema);
       const seed: Person[] = [
         { email: m.maker.email, role: "maker" },
@@ -158,12 +164,22 @@ export function createMapleApp(def: AppDef) {
     return true;
   }
 
-  const services = createServices({
-    grove: process.env.GROVE_URL,
-    secret: process.env.GROVE_APP_SECRET,
-    trial: process.env.GROVE_TRIAL === "1",
+  const grove = process.env.GROVE_URL, appSecret = process.env.GROVE_APP_SECRET, trial = process.env.GROVE_TRIAL === "1";
+  const services: Services = createServices({
+    grove,
+    secret: appSecret,
+    trial,
     emailDirect: process.env.POSTMARK_TOKEN && m.email?.from ? email : undefined,
+    tasks: createTasks({
+      pool,
+      init: () => init(),
+      names: () => Object.keys(def.jobs ?? {}),
+      trial,
+      // Grove calls /maple/tick when a job is due, so it needs to know when that is.
+      wake: grove && appSecret && !trial ? (at) => fetch(`${grove}/services/tasks/wake`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${appSecret}` }, body: JSON.stringify({ at: at.toISOString() }), signal: AbortSignal.timeout(5000) }) : undefined,
+    }),
   });
+  const runJobs = async () => (await init(), tick(pool, def.jobs ?? {}, { pool, services }));
 
   async function ask(sender: string, kind: (typeof KINDS)[number], message: string, prompt?: string) {
     await init();
@@ -291,6 +307,21 @@ export function createMapleApp(def: AppDef) {
       },
     );
 
+    if (isMaker && def.jobs && Object.keys(def.jobs).length)
+      server.registerTool(
+        "jobs",
+        {
+          title: "Background jobs",
+          description: `For ${makerName}: the background jobs waiting to run in ${title}, when each is due, and any that failed and why. With runNow, also runs whatever is due straight away (on a trial copy this is the only way jobs run).`,
+          inputSchema: { runNow: z.boolean().optional() },
+        },
+        async ({ runNow }) => {
+          await init();
+          const done = runNow ? await runJobs() : undefined;
+          return json({ ...(done && { ranNow: done }), waiting: await jobList(pool), kinds: Object.keys(def.jobs ?? {}) });
+        },
+      );
+
     def.tools?.(server, { pool, person, isMaker, json, services });
     return server;
   }
@@ -335,6 +366,13 @@ export function createMapleApp(def: AppDef) {
   app.get("/auth/consent", (c) => c.html(consentPage(title, authUrl), 200, page));
   app.get("/icon.svg", () => new Response(ICON_SVG, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" } }));
   // Which commit is live: deploys check this to know the new version is serving.
+  // Runs the background jobs that are due. Called by Grove, or by any scheduler given MAPLE_TICK_SECRET. See tasks.ts.
+  app.post(TICK_PATH, async (c) => {
+    const given = Buffer.from((c.req.header("authorization") ?? "").replace(/^Bearer /i, ""));
+    const ok = [process.env.GROVE_APP_SECRET, process.env.MAPLE_TICK_SECRET].some((s) => s && s.length >= 16 && given.length === s.length && timingSafeEqual(given, Buffer.from(s)));
+    if (!ok) return c.json({ error: "Not allowed." }, 401);
+    return c.json(await runJobs());
+  });
   app.get("/maple/health", (c) => c.json({ ok: true, commit: process.env.MAPLE_COMMIT ?? null }));
 
   honoProtectedResourceMetadata(app as unknown as Hono, mcpAuth);
@@ -386,6 +424,11 @@ export function createMapleApp(def: AppDef) {
     return c.json({ title, person, maker: makerName, requests: await listRequests() });
   });
 
+  // The app's own pages and routes can use its tables straight away: make sure they exist first.
+  app.use("*", async (_c, next) => {
+    await init();
+    await next();
+  });
   def.routes?.(app, pool, services);
 
   app.on(["GET", "DELETE"], "/mcp", (c) => c.json({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed." }, id: null }, 405, { Allow: "POST" }));

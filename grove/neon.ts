@@ -4,6 +4,8 @@ import { buildAssets } from "../scripts/build-assets.ts";
 
 export default defineConfig({
   auth: true,
+  // Once a minute Grove wakes the apps that have a background job due.
+  triggers: { "wake-apps": { type: "schedule", function: "grove", cron: "* * * * *", functionPath: "/cron/tick" } },
   functions: {
     grove: {
       name: "Grove",

@@ -70,8 +70,8 @@ accounts and keys. `src/maple/services.ts` lists every call with its inputs and 
 | Service | Real? | For |
 |---|---|---|
 | `services.email.send({ to, subject, text })` | Yes | Confirmations, reminders, anything by email. Plain text, up to 10 addresses a call, a daily limit per app. |
+| `services.tasks.later(name, payload, { inMinutes })`, `.every(name, { hours } or { dailyAt })` | Yes | Work that runs later or on a timer. See below. |
 | `services.payments.checkout(...)`, `.status(id)` | Pretend | Taking a card payment on a page Grove hosts. |
-| `services.tasks.later(...)`, `.every(...)` | Pretend | Work that runs later or on a timer. |
 | `services.files.put(...)` | Pretend | Keeping photos and documents. |
 | `services.texts.send(...)` | Pretend | Text messages to phones. |
 | `services.ai.ask(...)` | Pretend | Sorting or summarising what people typed. |
@@ -86,7 +86,29 @@ Email is real, so treat it with care: only email people who expect it, never in 
 the tool description that the tool sends email. On a trial copy, only the app's own people are
 emailed; other addresses come back in `held`.
 
-Don't add other ways of doing these (your own Stripe or email keys, `setTimeout` for later work):
+### Background work
+
+Add the work to `jobs` in `src/app.ts`, then start it from a tool or a route:
+
+```ts
+export const jobs: AppJobs = {
+  remind: async ({ orderId }, { pool, services }) => {
+    const { rows: [o] } = await pool.query("select email, total from orders where id = $1 and paid_at is null", [orderId]);
+    if (o) await services.email.send({ to: o.email, subject: "Your order is waiting", text: `...` });
+  },
+};
+// in a tool:  await services.tasks.later("remind", { orderId }, { inMinutes: 60 * 24 });
+// on a timer: await services.tasks.every("daily_summary", { dailyAt: "08:00" });  // UTC
+```
+
+A job has no signed-in person. If it throws it is tried again, up to five times, so make it safe
+to run twice (check the row still needs doing). Jobs run within a minute or so of their time, not
+to the second. Start a repeating job from a maker's tool, not on every request: calling `every`
+again with the same name replaces the old timing. The kit gives the maker a `jobs` tool to see
+what is waiting and what failed. Jobs live in the app's own database, so they go wherever the app
+goes; outside Grove, `src/maple/tasks.ts` says what has to call the app to run them.
+
+Don't add other ways of doing these (your own Stripe or email keys, `setTimeout` or `setInterval` for later work):
 the app has nowhere to keep secrets and stops running between requests.
 
 ## Checks and deploys

@@ -4,7 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Hono } from "hono";
 import type { Pool } from "pg";
 import manifest from "../maple.json" with { type: "json" };
-import { z, type Ctx, type Services } from "./maple/kit.ts";
+import { z, type AppJobs, type Ctx, type Services } from "./maple/kit.ts";
 
 /** Tables, created on every start, so always "if not exists". Add columns with "alter table ... add column if not exists". */
 export const schema = `
@@ -29,6 +29,9 @@ export function tools(server: McpServer, { json }: Ctx) {
 
 /** Web pages and other routes, if any. Paths under /api/ require sign-in; everything else is public. See AGENTS.md. */
 export function routes(_app: Hono, _pool: Pool, _services: Services) {}
+
+/** Background work: what to do when a job started with services.tasks.later or .every comes due. See AGENTS.md. */
+export const jobs: AppJobs = {};
 
 /** The front page at "/", as HTML, for a public website. Left undefined, "/" is the sign-in page. */
 export const home: ((info: { title: string; site: string; mcpUrl: string }) => string) | undefined = undefined;

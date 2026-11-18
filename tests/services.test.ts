@@ -10,8 +10,8 @@ const answering = (...answers: any[]) => {
 };
 const SITE = "https://grove.example";
 
-test("the list: only email is real, and the kit and Grove agree on what exists", () => {
-  assert.deepEqual(SERVICES.filter((s) => s.real).map((s) => s.name), ["email"]);
+test("the list: email and background work are real, and the kit and Grove agree on what exists", () => {
+  assert.deepEqual(SERVICES.filter((s) => s.real).map((s) => s.name), ["email", "tasks"]);
   assert.deepEqual(SERVICES.map((s) => [s.name, s.real]), SERVICE_LIST.map((s) => [s.name, s.real]));
   assert.ok(known("email", "send") && known("payments", "status") && !known("email", "blast") && !known("fax", "send"));
 });
@@ -44,9 +44,6 @@ test("email: the sender always says via Grove, the footer names the app and how 
 test("pretend services: every answer says it is pretend and why", () => {
   const now = new Date("2026-11-18T10:00:00Z");
   const calls: [string, string, any][] = [
-    ["tasks", "later", { name: "remind", payload: {}, inMinutes: 30 }],
-    ["tasks", "every", { name: "digest", dailyAt: "08:00" }],
-    ["tasks", "cancel", { id: "x" }],
     ["files", "put", { name: "my photo.png", type: "image/png", base64: "aGVsbG8=" }],
     ["files", "remove", { id: "x" }],
     ["texts", "send", { to: "+44 7700 900123", text: "Hello" }],
@@ -58,16 +55,12 @@ test("pretend services: every answer says it is pretend and why", () => {
     assert.equal(r.mock, true, `${s}.${a}`);
     assert.match(r.note, /^Pretend: /, `${s}.${a}`);
   }
-  assert.equal((pretend("tasks", "later", { name: "n", inMinutes: 30 }, "i", SITE, now) as any).runsAt, "2026-11-18T10:30:00.000Z");
-  assert.equal((pretend("tasks", "every", { name: "n", dailyAt: "08:00" }, "i", SITE, now) as any).next, "2026-11-19T08:00:00.000Z");
   assert.equal((pretend("texts", "send", { to: "+44 7700 900123", text: "x" }, "i", SITE) as any).to, "+447700900123");
   assert.match((pretend("files", "put", { name: "my photo.png", type: "image/png", base64: "aGVsbG8=" }, "i", SITE) as any).url, /\/pretend\/file\/i\/my-photo\.png$/);
 });
 
 test("pretend services: bad input is refused in words", () => {
   assert.throws(() => pretend("texts", "send", { to: "phone", text: "x" }, "i", SITE), /phone number/);
-  assert.throws(() => pretend("tasks", "later", { name: "n", inMinutes: -1 }, "i", SITE), /inMinutes/);
-  assert.throws(() => pretend("tasks", "every", { name: "n", dailyAt: "8am" }, "i", SITE), /08:00/);
   assert.throws(() => pretend("ai", "ask", {}, "i", SITE), /prompt is required/);
 });
 
@@ -110,8 +103,8 @@ test("an app run by Grove: calls go to Grove with the app's secret, and say when
   globalThis.fetch = (async (url: string, init: any) => (seen.push([url, init.headers.authorization, JSON.parse(init.body)]), new Response(JSON.stringify({ id: "t1", runsAt: "x", mock: true }), { status: 200 }))) as any;
   try {
     const s = createServices({ grove: SITE, secret: "shh", trial: true });
-    await s.tasks.later("remind", { order: 4 }, { inMinutes: 5 });
-    assert.deepEqual(seen[0], [`${SITE}/services/tasks/later`, "Bearer shh", { name: "remind", payload: { order: 4 }, inMinutes: 5, trial: true }]);
+    await s.texts.send({ to: "+447700900123", text: "Hi" });
+    assert.deepEqual(seen[0], [`${SITE}/services/texts/send`, "Bearer shh", { to: "+447700900123", text: "Hi", trial: true }]);
     globalThis.fetch = (async () => new Response(JSON.stringify({ error: "This app has sent all the emails it can today (50)." }), { status: 429 })) as any;
     await assert.rejects(s.email.send({ to: "a@b.co", subject: "s", text: "t" }), /all the emails it can today/);
   } finally {

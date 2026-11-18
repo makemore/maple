@@ -59,8 +59,14 @@ export const deleteBranch = (project: string, branch: string) =>
   });
 
 /** Lets people sign in at this address, and lets assistants connect to its /mcp. */
-export async function setUpSignIn(project: string, branch: string, url: string) {
+export async function setUpSignIn(project: string, branch: string, url: string, sender?: { name: string; email: string }) {
   const base = `/projects/${project}/branches/${branch}/auth`;
+  // Sign-in codes come from Grove's own address rather than Neon's shared one, which is rate-limited.
+  // If this fails the app still signs people in, through the shared sender.
+  if (sender && process.env.POSTMARK_TOKEN)
+    await neon("PATCH", `${base}/email_provider`, { type: "standard", host: "smtp.postmarkapp.com", port: 587, username: process.env.POSTMARK_TOKEN, password: process.env.POSTMARK_TOKEN, sender_email: sender.email, sender_name: sender.name }).catch((e: Error) =>
+      console.error("sign-in sender not set:", e.message),
+    );
   await settled(() => neon("POST", `${base}/domains`, { domain: url, auth_provider: "better_auth" })).catch(already);
   await settled(() => neon("PATCH", `${base}/plugins/oauth-provider`, { enabled: true, login_page: `${url}/auth/sign-in`, consent_page: `${url}/auth/consent`, resources: [{ identifier: `${url}/mcp` }] }));
 }

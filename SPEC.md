@@ -108,8 +108,13 @@ If the app has a dashboard, it SHOULD show the asks and their replies.
 
 - The app's code is one or more HTTP handlers (`fetch(request) => Response`), so it runs on any
   provider that hosts Node.
-- Scheduled jobs (`jobs`) are HTTP calls to the app. The app MUST check they came from the
-  provider's scheduler.
+- Background work lives in the app's own database (the kit's `maple_tasks` table), so it moves with
+  the app. The app does nothing between requests: something outside MUST call `POST /maple/tick`
+  regularly (once a minute is plenty) to run what is due. Any scheduler will do: the provider's
+  own, cron with curl, a CI timer. The app MUST refuse the call without the shared secret
+  (`MAPLE_TICK_SECRET`, or the secret its provider gave it).
+- A job MAY run more than once and late, never early: it is retried when it fails, so it MUST be
+  safe to repeat.
 - The app SHOULD be served on its own domain (`domain`), with `www.` redirecting to it. Links,
   OAuth resources and emails MUST use that domain, so moving provider is a DNS change.
 

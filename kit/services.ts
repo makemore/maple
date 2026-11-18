@@ -1,5 +1,5 @@
-// Things Grove does for an app so its maker has nothing to set up: email today, and payments,
-// background work, files, text messages, AI and PDFs as pretend versions until the real ones arrive.
+// Things an app gets with nothing for its maker to set up. Email and background work are real.
+// Payments, files, text messages, AI and PDFs are pretend versions until the real ones arrive.
 //
 // A pretend service takes the same input and gives back the same shape the real one will, with
 // `mock: true` and a note saying what did not really happen. Code written against it keeps working
@@ -12,6 +12,8 @@ export interface Pretend {
   /** What to tell the person about it, in plain words. */
   note?: string;
 }
+
+import type { Tasks } from "./tasks.ts";
 
 export interface Services {
   /** Real. Plain-text email from the app, through Grove. */
@@ -29,15 +31,8 @@ export interface Services {
     /** Whether a payment started with checkout has been paid. */
     status(id: string): Promise<{ id: string; status: "unpaid" | "paid"; amount: number; currency: string; reference?: string } & Pretend>;
   };
-  /** Pretend for now. Work that happens later or on a timer: Grove will call the app back at POST /tasks/<name>. */
-  tasks: {
-    /** Runs a named job once, after a delay. */
-    later(name: string, payload: unknown, when: { inMinutes: number }): Promise<{ id: string; runsAt: string } & Pretend>;
-    /** Runs a named job again and again. */
-    every(name: string, how: { hours: number } | { dailyAt: string }): Promise<{ id: string; next: string } & Pretend>;
-    /** Stops a job started with later or every. */
-    cancel(id: string): Promise<{ id: string; cancelled: true } & Pretend>;
-  };
+  /** Real. Work that happens later or on a timer, kept in the app's own database. The work itself is one of the app's `jobs`. See tasks.ts. */
+  tasks: Tasks;
   /** Pretend for now. Keeping a file (a photo, a document) and getting a web address for it. */
   files: {
     put(file: { name: string; type: string; base64: string; public?: boolean }): Promise<{ id: string; url: string; bytes: number } & Pretend>;
@@ -61,7 +56,7 @@ export interface Services {
 export const SERVICE_LIST = [
   { name: "email", real: true, what: "Confirmations, reminders and notices, sent from your app." },
   { name: "payments", real: false, what: "Take a card payment on a page Grove hosts. No payment account to open." },
-  { name: "tasks", real: false, what: "Do something later, or every morning, without anyone asking." },
+  { name: "tasks", real: true, what: "Do something later, or every morning, without anyone asking." },
   { name: "files", real: false, what: "Keep uploads and photos, each with its own web address." },
   { name: "texts", real: false, what: "Send a text to a phone." },
   { name: "ai", real: false, what: "Sort, summarise or draft from what people typed." },
@@ -73,7 +68,7 @@ export const SERVICE_LIST = [
  * them (an app run somewhere else) email goes through `emailDirect` if the app has one, and the
  * rest give a pretend result saying they need setting up.
  */
-export function createServices(o: { grove?: string; secret?: string; trial?: boolean; emailDirect?: (to: string[], subject: string, text: string, replyTo?: string) => Promise<boolean> }): Services {
+export function createServices(o: { grove?: string; secret?: string; trial?: boolean; emailDirect?: (to: string[], subject: string, text: string, replyTo?: string) => Promise<boolean>; tasks?: Tasks }): Services {
   const call = async (service: string, action: string, body: unknown): Promise<any> => {
     if (!o.grove || !o.secret) {
       if (service === "email") {
@@ -98,10 +93,10 @@ export function createServices(o: { grove?: string; secret?: string; trial?: boo
   return {
     email: { send: (msg) => call("email", "send", msg) },
     payments: { checkout: (x) => call("payments", "checkout", x), status: (id) => call("payments", "status", { id }) },
-    tasks: {
-      later: (name, payload, when) => call("tasks", "later", { name, payload, ...when }),
-      every: (name, how) => call("tasks", "every", { name, ...how }),
-      cancel: (id) => call("tasks", "cancel", { id }),
+    tasks: o.tasks ?? {
+      later: () => Promise.reject(new Error("Background work isn't set up for this app.")),
+      every: () => Promise.reject(new Error("Background work isn't set up for this app.")),
+      cancel: () => Promise.reject(new Error("Background work isn't set up for this app.")),
     },
     files: { put: (file) => call("files", "put", file), remove: (id) => call("files", "remove", { id }) },
     texts: { send: (msg) => call("texts", "send", msg) },

@@ -1,4 +1,5 @@
-// What Grove does for the apps it runs, so their makers have nothing to set up. Email is real.
+// What Grove does for the apps it runs, so their makers have nothing to set up. Email is real, and
+// so is background work (the kit keeps the jobs; Grove only wakes the app when one is due).
 // The rest are pretend for now: they take the input the real service will, keep a record, and
 // answer in the real shape with `mock: true` and a note saying what did not happen.
 import type { Pool } from "pg";
@@ -10,6 +11,8 @@ create table if not exists service_calls (
   body jsonb not null default '{}', result jsonb not null default '{}', mock boolean not null default true,
   trial boolean not null default false, at timestamptz not null default now());
 create index if not exists service_calls_app on service_calls (app, at desc);
+alter table apps add column if not exists wake_at timestamptz;
+create table if not exists app_offers (app text primary key, to_email text not null, from_email text not null, at timestamptz not null default now());
 create table if not exists pretend_payments (
   id text primary key, app text not null, amount integer not null, currency text not null, description text not null,
   reference text, return_to text, paid_at timestamptz, created_at timestamptz not null default now());`;
@@ -18,7 +21,7 @@ create table if not exists pretend_payments (
 export const SERVICES = [
   { name: "email", real: true, title: "Email", what: "Confirmations, reminders and notices, sent from the app.", use: "services.email.send({ to, subject, text })" },
   { name: "payments", real: false, title: "Payments", what: "Take a card payment on a page Grove hosts. No payment account to open.", use: "services.payments.checkout({ amount, description })" },
-  { name: "tasks", real: false, title: "Background work", what: "Do something later, or every day, without anyone asking.", use: "services.tasks.later(name, payload, { inMinutes })" },
+  { name: "tasks", real: true, title: "Background work", what: "Do something later, or every day, without anyone asking. Kept in the app's own database, so it works wherever the app runs.", use: "services.tasks.later(name, payload, { inMinutes }) with the work in jobs" },
   { name: "files", real: false, title: "Files and photos", what: "Keep uploads and get a web address for each.", use: "services.files.put({ name, type, base64 })" },
   { name: "texts", real: false, title: "Text messages", what: "Send a text to a phone.", use: "services.texts.send({ to, text })" },
   { name: "ai", real: false, title: "AI inside the app", what: "Sort, summarise or draft from what people typed.", use: "services.ai.ask({ prompt })" },
@@ -26,7 +29,7 @@ export const SERVICES = [
 ] as const;
 
 const ACTIONS: Record<string, string[]> = {
-  email: ["send"], payments: ["checkout", "status"], tasks: ["later", "every", "cancel"], files: ["put", "remove"], texts: ["send"], ai: ["ask"], pdf: ["make"],
+  email: ["send"], payments: ["checkout", "status"], tasks: ["wake"], files: ["put", "remove"], texts: ["send"], ai: ["ask"], pdf: ["make"],
 };
 export const known = (service: string, action: string) => Boolean(ACTIONS[service]?.includes(action));
 
@@ -66,7 +69,7 @@ export function whoGets(to: string[], people: string[], trial: boolean) {
 }
 
 /** The sender's name people see. Never the bare app title, so an app can't pass itself off as someone else. */
-export const fromName = (title: string) => `${title.replace(/[^\p{L}\p{N} .&'-]/gu, "").trim().slice(0, 60) || "An app"} via Grove`;
+export const fromName = (title: string) => `${String(title ?? "").replace(/[^\p{L}\p{N} .&'-]/gu, "").trim().slice(0, 60) || "An app"} via Grove`;
 
 /** The line Grove adds under every email an app sends. */
 export const footer = (a: { title: string; slug: string; url?: string }, site: string) =>
@@ -74,7 +77,6 @@ export const footer = (a: { title: string; slug: string; url?: string }, site: s
 
 const NOTES: Record<string, string> = {
   payments: "Pretend: no money moved. Payments through Grove aren't switched on yet. The page at url lets the person pretend to pay so the rest can be tried.",
-  tasks: "Pretend: this was written down but will not run. Background work isn't switched on yet.",
   files: "Pretend: the file was not kept and the address won't open. File storage isn't switched on yet.",
   texts: "Pretend: no text message was sent. Text messages aren't switched on yet.",
   ai: "Pretend: no AI model was asked. This answer is a stand-in.",
@@ -86,20 +88,6 @@ export function pretend(service: string, action: string, body: any, id: string, 
   const base = { mock: true as const, note: NOTES[service] };
   const need = (v: unknown, what: string, max = 200) => str(v, what, max);
   switch (`${service}.${action}`) {
-    case "tasks.later": {
-      const mins = Number(body.inMinutes);
-      if (!(mins >= 0 && mins <= 60 * 24 * 366)) throw new ServiceError("inMinutes must be a number of minutes, up to a year.");
-      return { id, name: need(body.name, "name", 60), runsAt: new Date(now.getTime() + mins * 60_000).toISOString(), ...base };
-    }
-    case "tasks.every": {
-      const hours = Number(body.hours);
-      if (body.dailyAt === undefined && !(hours >= 1 && hours <= 24 * 31)) throw new ServiceError("Give hours (1 or more) or dailyAt (like \"08:00\").");
-      if (body.dailyAt !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.dailyAt))) throw new ServiceError("dailyAt must be a time like \"08:00\".");
-      const next = body.dailyAt !== undefined ? new Date(`${new Date(now.getTime() + 86_400_000).toISOString().slice(0, 10)}T${body.dailyAt}:00Z`) : new Date(now.getTime() + hours * 3_600_000);
-      return { id, name: need(body.name, "name", 60), next: next.toISOString(), ...base };
-    }
-    case "tasks.cancel":
-      return { id: need(body.id, "id"), cancelled: true as const, ...base };
     case "files.put": {
       const name = need(body.name, "name").replace(/[^\w.-]+/g, "-");
       need(body.type, "type", 100);
@@ -180,3 +168,41 @@ export async function sendMail(from: string, to: string, subject: string, text: 
 
 /** How many emails an app may send in a day through the email service. */
 export const appEmailsPerDay = (paid: boolean) => Number(process.env.APP_EMAILS_PER_DAY ?? 50) * (paid ? 10 : 1);
+
+/** When an app next has a job due. Grove's timer wakes it then. Never pushes an earlier wake later. */
+export async function wakeAt(pool: Pool, app: string, body: any) {
+  const at = new Date(String(body?.at));
+  if (Number.isNaN(at.getTime())) throw new ServiceError("at must be a time.");
+  await pool.query("update apps set wake_at = least(coalesce(wake_at, 'infinity'), $2) where slug = $1", [app, at]);
+  return { ok: true };
+}
+
+/** How many apps one tick of the timer wakes, and how long each gets to answer. */
+export const WAKE_BATCH = 20, WAKE_TIMEOUT_MS = 40_000;
+
+/**
+ * Wakes the apps with a job due: calls each one's /maple/tick, and notes when it next wants waking.
+ * An app that doesn't answer is tried again in five minutes.
+ */
+export async function wakeDue(pool: Pool, secretFor: (slug: string) => string, call: typeof fetch = fetch) {
+  const { rows } = await pool.query(
+    "update apps set wake_at = now() + interval '5 minutes' where slug in (select slug from apps where wake_at <= now() and paused_at is null and url is not null and status <> 'creating' order by wake_at limit $1 for update skip locked) returning slug, url",
+    [WAKE_BATCH],
+  );
+  const results = await Promise.all(
+    rows.map(async (a) => {
+      try {
+        const res = await call(`${a.url}/maple/tick`, { method: "POST", headers: { authorization: `Bearer ${secretFor(a.slug)}` }, signal: AbortSignal.timeout(WAKE_TIMEOUT_MS) });
+        // An app made before background work existed has no such address: stop waking it.
+        if (res.status === 404) return (await pool.query("update apps set wake_at = null where slug = $1", [a.slug]), { app: a.slug, ok: false });
+        if (!res.ok) return { app: a.slug, ok: false };
+        const out: any = await res.json();
+        await pool.query("update apps set wake_at = $2 where slug = $1", [a.slug, out.next ?? null]);
+        return { app: a.slug, ok: true, ran: out.ran, failed: out.failed };
+      } catch {
+        return { app: a.slug, ok: false };
+      }
+    }),
+  );
+  return results;
+}

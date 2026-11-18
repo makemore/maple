@@ -7,15 +7,18 @@ import manifest from "../maple.json" with { type: "json" };
 import { createMapleApp, z, type Ctx, type Manifest } from "../../kit/kit.ts";
 import { BILLING_SCHEMA, billingOn, checkout, onEvent, planFor, portal, priceText, verified } from "./billing.ts";
 import { BuildError, bundle, check, upload, zip, type Files } from "./build.ts";
+import { Client } from "pg";
 import { connectionUri, createBranch, createProject, deleteBranch, deleteProject, registerDomain, setUpSignIn } from "./neon.ts";
 import { waitUntil } from "@neon/functions";
+import { parseTriggerDelivery } from "@neon/functions/triggers";
 import { GUARD_SCHEMA, MAX_OPEN_CHANGES, appNamed, blockedWhy, concerns, mayNotify, pausedArchive, report, reportPage, underBuildLimit } from "./guard.ts";
 import { HEAVY, METER_SCHEMA, carryOn, firstLimit, record, rounded, stopMessage, summary, today } from "./meter.ts";
 import { LEGAL_SCHEMA, TERMS_VERSION, agree, agreed, privacyPage, termsOn, termsPage } from "./legal.ts";
 import { sitePage, type PaidPlan } from "./site.ts";
 import { CHANGE, MAX_FILE, RESERVED, SLUG, applyWrites, diff, merge, tooBig, withKit } from "./code.ts";
 import { TEMPLATE } from "./template-files.ts";
-import { SERVICES, SERVICES_SCHEMA, ServiceError, appEmailsPerDay, checkEmail, footer, fromName, known, pretend, pretendCheckout, pretendPayPage, pretendStatus, sendMail, whoGets } from "./services.ts";
+import { UPKEEP_SCHEMA, due, prune } from "./upkeep.ts";
+import { SERVICES, SERVICES_SCHEMA, ServiceError, appEmailsPerDay, checkEmail, footer, fromName, known, pretend, pretendCheckout, pretendPayPage, pretendStatus, sendMail, wakeAt, wakeDue, whoGets } from "./services.ts";
 
 // An app's code lives here as whole versions: every saved change and every shipped state is one row.
 const schema = `
@@ -33,7 +36,7 @@ create table if not exists changes (
   app text not null, name text not null, version bigint not null, base bigint not null, branch_id text, url text,
   updated_at timestamptz not null default now(), primary key (app, name));
 create table if not exists waitlist (
-  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}${GUARD_SCHEMA}${METER_SCHEMA}${SERVICES_SCHEMA}`;
+  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}${GUARD_SCHEMA}${METER_SCHEMA}${SERVICES_SCHEMA}${UPKEEP_SCHEMA}`;
 
 const DOMAIN = process.env.APPS_DOMAIN;
 
@@ -119,7 +122,7 @@ async function putUp(a: any, branch: string, archive: Record<string, string>, ve
   const { address } = await upload({ key: process.env.NEON_API_KEY!, project: a.neon_project_id, branch }, archive, env);
   const url = publicUrl ?? address;
   if (first && publicUrl && publicUrl !== address) await registerDomain(a.neon_project_id, branch, new URL(publicUrl).host);
-  await setUpSignIn(a.neon_project_id, branch, url);
+  await setUpSignIn(a.neon_project_id, branch, url, { name: fromName(a.title ?? a.slug), email: `grove@${new URL(site).host}` });
   return url;
 }
 
@@ -305,7 +308,7 @@ function tools(server: McpServer, ctx: Ctx) {
       title: "What Grove does for apps",
       annotations: { readOnlyHint: true },
       description:
-        "What Grove can do for an app so its maker sets nothing up: email (real), and payments, background work, files, text messages, AI and PDFs (pretend for now: they answer in the real shape but nothing really happens). Use it before building a feature that needs one, and to see what an app has asked for lately. With app, also lists that app's last 30 calls. Tell the person plainly which services are pretend.",
+        "What Grove can do for an app so its maker sets nothing up: email and background work (real), and payments, files, text messages, AI and PDFs (pretend for now: they answer in the real shape but nothing really happens). Use it before building a feature that needs one, and to see what an app has asked for lately. With app, also lists that app's last 30 calls. Tell the person plainly which services are pretend.",
       inputSchema: { app: z.string().optional().describe("One of the person's apps, to see what it has used") },
     },
     async ({ app: slug }) => {
@@ -402,7 +405,7 @@ function tools(server: McpServer, ctx: Ctx) {
       try {
         const [archive, where] = await Promise.all([built(files), createProject(name).then((p) => (made = p))]);
         const version = await save(name, files, `Start ${title} from the MAPLE template`, person.email, true);
-        const a = { slug: name, neon_project_id: where.project, makers: [person.email] };
+        const a = { slug: name, title, neon_project_id: where.project, makers: [person.email] };
         const url = await putUp(a, where.branch, archive, version, DOMAIN && `https://${name}.${DOMAIN}`, true);
         await pool.query("update apps set neon_project_id = $2, branch_id = $3, url = $4, live = $5, status = 'live' where slug = $1", [name, where.project, where.branch, url, version]);
         return json({ app: name, status: "starting", address: url, connect: url + "/mcp", next: "The address starts answering within a minute or two; app_status says when. Meanwhile, read AGENTS.md and src/app.ts and start building the features with write_files." });
@@ -665,6 +668,64 @@ function tools(server: McpServer, ctx: Ctx) {
   );
 
   server.registerTool(
+    "give_app",
+    {
+      title: "Hand an app over",
+      description:
+        "For an app's maker: offers the whole app to someone else, such as the client it was made for. Nothing changes until they accept it from their own Grove with accept_app, within 14 days. When they do, they become its only maker (it counts as one of their apps, on their plan) and the person giving it loses it. Its address, code, information and people stay as they are. Confirm the email with the person first. With to left out, takes back an offer.",
+      inputSchema: { app: z.string(), to: z.string().email().optional().describe("Who to offer it to. Leave out to take the offer back.") },
+    },
+    async ({ app: slug, to }) => {
+      await mustAgree();
+      const a = await appFor(ctx, slug);
+      notPaused(a);
+      if (!to) return json({ withdrawn: Boolean((await pool.query("delete from app_offers where app = $1", [a.slug])).rowCount) });
+      const email_ = to.toLowerCase();
+      if (a.makers.includes(email_)) throw new Error("They already make this app.");
+      if (await blockedWhy(pool, email_)) throw new Error("That person can't be given apps on this Grove.");
+      await pool.query("insert into app_offers (app, to_email, from_email) values ($1, $2, $3) on conflict (app) do update set to_email = $2, from_email = $3, at = now()", [a.slug, email_, person.email]);
+      const told = await sendMail(`Grove <grove@${new URL(site).host}>`, email_, `${person.email} wants to hand you an app: ${a.title}`,
+        `${person.email} has offered you ${a.title} (${a.url}), an app made with Grove.\n\nIf you accept, it becomes yours: you'd be the one who can change it, and it would count as one of your apps.\n\nTo accept, add Grove to your AI assistant (${site}/#connect), sign in with this email address, and say: accept the app ${a.slug}\n\nThe offer lasts 14 days. If you weren't expecting this, ignore it and nothing happens.`, person.email);
+      return json({ offered: a.slug, to: email_, emailed: told, next: `They accept from their own Grove by saying "accept the app ${a.slug}". Until then nothing changes, and give_app without "to" takes the offer back.` });
+    },
+  );
+
+  server.registerTool(
+    "accept_app",
+    {
+      title: "Accept an app someone is handing over",
+      description: "Accepts an app another maker offered to the signed-in person with give_app. They become its only maker and it counts as one of their apps. With no app, lists what they have been offered. Ask before accepting.",
+      inputSchema: { app: z.string().optional() },
+    },
+    async ({ app: slug }) => {
+      await init();
+      const { rows: offers } = await pool.query("select o.app, o.from_email, o.at, a.title, a.url from app_offers o join apps a on a.slug = o.app where o.to_email = $1 and o.at > now() - interval '14 days'", [person.email]);
+      if (!slug) return json({ offers });
+      await mustAgree();
+      const offer = offers.find((o) => o.app === slug);
+      if (!offer) throw new Error(`Nobody has offered you an app called ${slug}, or the offer has run out.`);
+      const { rows: [a] } = await pool.query("select * from apps where slug = $1", [slug]);
+      notPaused(a);
+      const [plan, { rows: [{ n }] }] = await Promise.all([planFor(pool, person.email), pool.query("select count(*)::int n from apps where $1 = any(makers)", [person.email])]);
+      if (n >= plan.apps) throw new Error(`That would be more than the ${plan.apps} apps on your plan. ${plan.plan === "free" && billingOn() ? "The upgrade tool gives a link to the paid plan." : "Delete one first."}`);
+      // The app keeps its own list of people, in its own database: make the new maker one there, and the old makers ordinary users.
+      const db = new Client({ connectionString: await connectionUri(a.neon_project_id, a.branch_id) });
+      await db.connect();
+      try {
+        await db.query("update maple_people set role = 'user' where role = 'maker'");
+        await db.query("insert into maple_people (email, role, added_by) values ($1, 'maker', 'grove') on conflict (email) do update set role = 'maker'", [person.email]);
+      } finally {
+        await db.end();
+      }
+      await pool.query("update apps set makers = $2, users = (select coalesce(array_agg(distinct u), '{}') from unnest(users || makers) u where u <> $3) where slug = $1", [a.slug, [person.email], person.email]);
+      await pool.query("delete from app_offers where app = $1", [a.slug]);
+      // The line free apps carry depends on the maker's plan, so put the app up again under the new one.
+      waitUntil(putUpAgain({ ...a, makers: [person.email] }).catch((e) => console.error("after hand-over:", e)));
+      return json({ yours: a.slug, address: a.url, from: offer.from_email, note: `${offer.from_email} can still use the app as an ordinary person unless you remove them in the app itself. The app's maple.json still names them as its maker: change the name and email there with your next change.` });
+    },
+  );
+
+  server.registerTool(
     "delete_app",
     {
       title: "Delete an app",
@@ -675,7 +736,7 @@ function tools(server: McpServer, ctx: Ctx) {
       const a = await appFor(ctx, slug);
       if (confirm !== slug) throw new Error("confirm must be the app's name, typed by the person.");
       if (a.neon_project_id) await deleteProject(a.neon_project_id).catch((e) => { if (!/ 404 /.test(String(e))) throw e; });
-      for (const t of ["changes", "versions"]) await pool.query(`delete from ${t} where app = $1`, [slug]);
+      for (const t of ["changes", "versions", "app_offers", "service_calls", "pretend_payments"]) await pool.query(`delete from ${t} where app = $1`, [slug]);
       await pool.query("delete from apps where slug = $1", [slug]);
       return json({ deleted: slug });
     },
@@ -790,6 +851,9 @@ function routes(app: import("hono").Hono<any>) {
         if (failed.length && !went.length) throw new ServiceError("The email could not be sent. Try again in a minute.", 502);
         result = { sent: went, held: who.held, ...(failed.length && { failed }), ...(who.held.length && { note: "This is a trial copy, so only the app's own people were emailed. The held addresses will be emailed once the change is live." }) };
         kept = { to: mail.to, subject: mail.subject };
+      } else if (service === "tasks") {
+        if (!trial) await wakeAt(pool, a.slug, body);
+        return c.json({ ok: true });
       } else if (service === "payments" && action === "checkout") result = await pretendCheckout(pool, a.slug, body, id, site);
       else if (service === "payments") result = await pretendStatus(pool, a.slug, body);
       else {
@@ -803,6 +867,16 @@ function routes(app: import("hono").Hono<any>) {
       if (e instanceof ServiceError) return c.json({ error: e.message }, e.status as 400);
       throw e;
     }
+  });
+
+  // Neon calls this once a minute (see neon.ts). It wakes the apps that have a background job due.
+  app.post("/cron/tick", async (c) => {
+    const parsed = await parseTriggerDelivery(c.req.raw);
+    if (!parsed.ok) return c.text(parsed.error, parsed.error === "invalid_body" ? 400 : 401);
+    await init();
+    const woken = await wakeDue(pool, appSecret);
+    if (await due(pool, "prune")) waitUntil(prune(pool).then((r) => console.log("pruned", JSON.stringify(r)), (e) => console.error("prune failed:", e)));
+    return c.json({ woken: woken.length, failed: woken.filter((w) => !w.ok).length });
   });
 
   // Where a pretend payment sends people. It never asks for card details.

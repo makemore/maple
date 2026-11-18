@@ -29,7 +29,7 @@ interface, the database holds what matters, and the loop is how the app grows.
 - [PROVIDERS.md](PROVIDERS.md): how each part maps onto Neon, Google Cloud, or a local Docker setup.
 
 
-- [kit/](kit/): the MAPLE kit, the code every app carries for the five parts.
+- [kit/](kit/): the MAPLE kit, the code every app carries for the five parts, plus background work ([kit/tasks.ts](kit/tasks.ts)) and the services an app can ask its host for ([kit/services.ts](kit/services.ts)).
 - [template/](template/): the app every new app starts from.
 - [grove/](grove/): Grove, the service that makes MAPLE apps from a chat. See [grove/README.md](grove/README.md).
 - [tests/](tests/): `npm test` runs them.
