@@ -40,15 +40,24 @@ test("front page: ChatGPT gets the address to copy", () => {
   assert.match(sitePage(MCP, 5), new RegExp(`data-copy="${MCP}"`));
 });
 
+test("front page: the page's script is valid JavaScript once the template has made it", () => {
+  const html = sitePage(MCP, 5, { price: "$10 a month", apps: 10, prices: { usd: "$10 a month" } });
+  const code = html.match(/<script type="module">([\s\S]*?)<\/script>/)![1];
+  assert.doesNotThrow(() => new Function(code.replace(/\bawait\b/g, "")), "a broken script stops the demo, the invite form and the prices working");
+});
+
 test("front page: shows the paid plan only when there is one", () => {
   const free = sitePage(MCP, 3);
-  assert.match(free, /3 websites and apps to start, and up to 100 just by asking/);
-  assert.match(free, /Generously free/);
+  assert.match(free, /<li>3 websites and apps<\/li>/);
+  assert.doesNotMatch(free, /just by asking/);
   assert.doesNotMatch(free, /<h3>Plus<\/h3>/);
   const paid = sitePage(MCP, 3, { price: "£12 a month", apps: 25 });
-  assert.match(paid, /<h3>Plus<\/h3>\s*<p class="big">£12 a month<\/p>/);
+  assert.match(paid, /<h3>Plus<\/h3>\s*<p class="big" id="plus-price">£12 a month<\/p>/);
   assert.match(paid, /Up to 25 websites and apps/);
-  assert.match(sitePage(MCP, 25, undefined, undefined, 25), /25 websites and apps to start<\/li>/, "no promise of more when there is none");
+  assert.match(sitePage(MCP, 5, undefined, undefined, 100), /5 websites and apps, and up to 100 just by asking/, "the promise of more only when there is more");
+  const local = sitePage(MCP, 5, { price: "$10 a month", apps: 10, prices: { usd: "$10 a month", gbp: "£10 a month" } });
+  assert.match(local, /id="plus-price" data-prices="\{&#34;usd&#34;:&#34;\$10 a month&#34;,&#34;gbp&#34;:&#34;£10 a month&#34;\}">\$10 a month</);
+  assert.match(local, /in your own currency where it is one of USD, GBP/);
   sound(paid);
 });
 

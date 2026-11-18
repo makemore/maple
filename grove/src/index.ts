@@ -5,7 +5,7 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import manifest from "../maple.json" with { type: "json" };
 import { createMapleApp, z, type Ctx, type Manifest } from "../../kit/kit.ts";
-import { BILLING_SCHEMA, billingOn, checkout, onEvent, planFor, portal, priceText, verified, FREE, FREE_MAX, PAID, askForMore } from "./billing.ts";
+import { BILLING_SCHEMA, billingOn, checkout, onEvent, planFor, portal, priceText, thePrice, verified, FREE, FREE_MAX, PAID, askForMore } from "./billing.ts";
 import { BuildError, bundle, check, upload, zip, type Files } from "./build.ts";
 import { Client } from "pg";
 import { capCompute, connectionUri, createBranch, createProject, deleteBranch, deleteProject, registerDomain, setUpSignIn } from "./neon.ts";
@@ -84,7 +84,9 @@ let paid: PaidPlan | undefined, paidAt = 0;
 function paidPlan() {
   if (billingOn() && Date.now() - paidAt > 3_600_000) {
     paidAt = Date.now();
-    priceText().then((price) => (paid = { price: price.replace(".00", ""), apps: PAID() })).catch(() => (paidAt = 0));
+    thePrice()
+      .then((p) => (paid = { price: `${Object.values(p.prices)[0]} a ${p.interval}`, apps: PAID(), prices: Object.fromEntries(Object.entries(p.prices).map(([c, a]) => [c, `${a} a ${p.interval}`])) }))
+      .catch(() => (paidAt = 0));
   }
   return paid;
 }
@@ -721,6 +723,8 @@ function tools(server: McpServer, ctx: Ctx) {
     },
   );
 
+  // Only when more free apps can be had by asking (FREE_APPS_MAX above APPS_PER_PERSON).
+  if (FREE_MAX() > FREE())
   server.registerTool(
     "more_apps",
     {

@@ -4,7 +4,28 @@
 import { ICON_SVG } from "../../kit/pages.ts";
 import { SERVICE_LIST } from "../../kit/services.ts";
 
+const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+
 const SCRIPT = `
+// The paid plan's price in the visitor's own currency, guessed from their time zone, which is close to
+// what Stripe's payment page decides from where they are. Without this the default currency shows.
+(() => {
+  const el = document.getElementById("plus-price");
+  if (!el || !el.dataset.prices) return;
+  let prices;
+  try { prices = JSON.parse(el.dataset.prices); } catch { return; }
+  // No regular expressions here: this text sits in a template string, where their backslashes would vanish.
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  const [area, city] = zone.split("/");
+  const euro = ["Amsterdam", "Andorra", "Athens", "Berlin", "Bratislava", "Brussels", "Busingen", "Dublin", "Helsinki", "Lisbon", "Ljubljana", "Luxembourg", "Madrid", "Malta", "Monaco", "Paris", "Riga", "Rome", "San_Marino", "Tallinn", "Vatican", "Vienna", "Vilnius", "Zagreb"];
+  const canada = ["Toronto", "Vancouver", "Edmonton", "Winnipeg", "Halifax", "Regina", "St_Johns", "Moncton", "Whitehorse", "Yellowknife", "Iqaluit", "Glace_Bay", "Goose_Bay", "Swift_Current", "Dawson_Creek", "Fort_Nelson"];
+  const want =
+    area === "Europe" && ["London", "Belfast", "Guernsey", "Isle_of_Man", "Jersey"].includes(city) ? "gbp" :
+    (area === "Europe" && euro.includes(city)) || (area === "Atlantic" && ["Canary", "Madeira", "Azores"].includes(city)) ? "eur" :
+    area === "America" && canada.includes(city) ? "cad" :
+    area === "Australia" ? "aud" : "usd";
+  if (prices[want]) el.textContent = prices[want];
+})();
 const form = document.getElementById("invite-form");
 const msg = document.getElementById("invite-msg");
 form.addEventListener("submit", async (e) => {
@@ -276,7 +297,8 @@ const claudeLink = (connect: string) => `https://claude.ai/customize/connectors?
 
 const SERVICE_TITLES: Record<string, string> = { email: "Email", payments: "Payments", tasks: "Background work", files: "Files and photos", texts: "Text messages", ai: "AI inside the app", pdf: "PDFs" };
 
-export type PaidPlan = { price: string; apps: number };
+/** The paid plan as shown: its price in the default currency, and in each other currency it is sold in. */
+export type PaidPlan = { price: string; apps: number; prices?: Record<string, string> };
 
 /** One line of the conversation in the example at the top: who says it, what, and the step it appears at. */
 const says = (step: number, who: "you" | "app", text: string) =>
@@ -291,7 +313,7 @@ const table = (step: number, name: string, columns: string[], read = false) =>
  * paid is the paid plan when there is one, and repo is where the code is public (the page only says
  * "open source" when it has somewhere to send people to read it).
  */
-export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: string, freeMax = Math.max(free, 100)) => `<!doctype html>
+export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: string, freeMax = free) => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -596,14 +618,14 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
 
   <section class="wrap" id="price">
     <p class="kicker">Price</p>
-    <h2>Generously free. Pay only for more.</h2>
-    <p class="intro">Free isn't a trial. Make real websites and apps, keep them running, and share them, without a card. The paid plan is for people who outgrow it.</p>
+    <h2>Free to start. Simple to grow.</h2>
+    <p class="intro">Free isn't a trial: make real websites and apps, keep them running and share them, without a card. Plus is for when you want more of them, or want them to be your own brand.</p>
     <div class="prices">
       <div class="price">
         <h3>Free</h3>
         <p class="big">£0</p>
         <ul>
-          <li>${free} websites and apps to start${freeMax > free ? `, and up to ${freeMax} just by asking` : ""}</li>
+          <li>${free} websites and apps${freeMax > free ? `, and up to ${freeMax} just by asking` : ""}</li>
           <li>A real database, web pages, sign-in, email, background work and file storage in every one</li>
           <li>Share each one with the people you choose, or make its pages public</li>
           <li>Trial copies, undo and change requests included</li>
@@ -614,7 +636,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
       </div>
       ${paid ? `<div class="price best">
         <h3>Plus</h3>
-        <p class="big">${paid.price}</p>
+        <p class="big" id="plus-price"${paid.prices ? ` data-prices="${esc(JSON.stringify(paid.prices))}"` : ""}>${esc(paid.price)}</p>
         <ul>
           <li>Everything in Free</li>
           <li>No Grove line on your apps' pages</li>
@@ -623,7 +645,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
           <li>Ten times the email, and far more room for files</li>
           <li>Background work as often as every 15 minutes</li>
         </ul>
-        <p>To move up, say "upgrade my plan" to Grove in your chat. It gives you a link to pay safely with Stripe. Cancel whenever you like.</p>
+        <p>To move up, say "upgrade my plan" to Grove in your chat. It gives you a link to pay safely with Stripe${paid.prices && Object.keys(paid.prices).length > 1 ? `, in your own currency where it is one of ${Object.keys(paid.prices).map((c) => c.toUpperCase()).join(", ")}` : ""}. Cancel whenever you like.</p>
       </div>` : `<div class="price">
         <h3>Later</h3>
         <p>A paid plan with higher limits will come later. We'll tell you well before anything changes.</p>

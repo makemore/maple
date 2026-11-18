@@ -12,10 +12,18 @@ create table if not exists plans (
 create table if not exists allowances (
   email text primary key, apps integer not null, why text, updated_at timestamptz not null default now());`;
 
-/** How many apps the free plan starts with, how many it can reach by asking, and how many the paid plan allows. */
-export const FREE = () => Number(process.env.APPS_PER_PERSON ?? 25);
-export const FREE_MAX = () => Math.max(FREE(), Number(process.env.FREE_APPS_MAX ?? 100));
-export const PAID = () => Number(process.env.PAID_APPS_PER_PERSON ?? 250);
+/** How many apps the free plan allows, how many it can reach by asking (none more unless set), and how many the paid plan allows. */
+export const FREE = () => Number(process.env.APPS_PER_PERSON ?? 5);
+export const FREE_MAX = () => Math.max(FREE(), Number(process.env.FREE_APPS_MAX ?? 0));
+export const PAID = () => Number(process.env.PAID_APPS_PER_PERSON ?? 10);
+
+/**
+ * What the paid plan costs, a round number in each currency a buyer is likely to have. The first is the
+ * default, charged to anyone whose own currency isn't listed. Stripe's payment page picks the buyer's
+ * currency from where they are. Changing these means a new LOOKUP_KEY, since a Stripe price can't be edited.
+ */
+export const PLAN_AMOUNTS: Record<string, number> = { usd: 1000, gbp: 1000, eur: 1000, cad: 1400, aud: 1500 };
+export const LOOKUP_KEY = "grove-plus-monthly-10";
 /** How many more apps one request adds. */
 export const MORE_STEP = 25;
 export const billingOn = () => Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_PRICE_ID);
@@ -39,11 +47,42 @@ export async function planFor(pool: Pool, email: string) {
   return { plan: paid ? "paid" : "free", apps: paid ? Math.max(PAID(), free) : free, customer: p?.customer as string | undefined, status: (p?.status ?? "none") as string };
 }
 
-/** What the paid plan costs, as Stripe has it, e.g. "$15.00 a month". */
+const money = (currency: string, amount: number) =>
+  new Intl.NumberFormat("en", { style: "currency", currency, minimumFractionDigits: amount % 100 ? 2 : 0 }).format(amount / 100).replace(/^(CA|A|US)\$/, (m) => ({ CA$: "C$", A$: "A$", US$: "$" })[m] ?? m);
+
+/**
+ * The paid plan's Stripe price, made on first use: the same product as STRIPE_PRICE_ID, at PLAN_AMOUNTS.
+ * Found again by its lookup key, so it is made once, whichever copy of Grove gets there first.
+ */
+let planPrice: Promise<{ id: string; prices: Record<string, string>; interval: string }> | undefined;
+export function thePrice() {
+  planPrice ??= (async () => {
+    const found = await stripe("GET", `/prices?lookup_keys[]=${LOOKUP_KEY}&active=true&expand[]=data.currency_options`);
+    let p = found.data?.[0];
+    if (!p) {
+      const old = await stripe("GET", `/prices/${process.env.STRIPE_PRICE_ID}`);
+      const [first, ...rest] = Object.entries(PLAN_AMOUNTS);
+      p = await stripe("POST", "/prices?expand[]=currency_options", {
+        product: typeof old.product === "string" ? old.product : old.product.id,
+        currency: first[0],
+        unit_amount: String(first[1]),
+        "recurring[interval]": "month",
+        lookup_key: LOOKUP_KEY,
+        nickname: "Grove Plus",
+        ...Object.fromEntries(rest.map(([c, a]) => [`currency_options[${c}][unit_amount]`, String(a)])),
+      });
+    }
+    const amounts: Record<string, number> = { [p.currency]: p.unit_amount, ...Object.fromEntries(Object.entries(p.currency_options ?? {}).map(([c, o]: [string, any]) => [c, o.unit_amount])) };
+    return { id: p.id as string, interval: (p.recurring?.interval ?? "month") as string, prices: Object.fromEntries(Object.entries(amounts).map(([c, a]) => [c, money(c, a)])) };
+  })();
+  planPrice.catch(() => (planPrice = undefined));
+  return planPrice;
+}
+
+/** What the paid plan costs in its default currency, e.g. "$10 a month". */
 export async function priceText() {
-  const p = await stripe("GET", `/prices/${process.env.STRIPE_PRICE_ID}`);
-  const amount = new Intl.NumberFormat("en", { style: "currency", currency: p.currency }).format(p.unit_amount / 100);
-  return `${amount} a ${p.recurring?.interval ?? "month"}`;
+  const p = await thePrice();
+  return `${Object.values(p.prices)[0]} a ${p.interval}`;
 }
 
 /** A Stripe payment page for the paid plan. Returns its address. */
@@ -52,7 +91,7 @@ export async function checkout(email: string, site: string, customer?: string): 
   if (customer && !(await stripe("GET", `/customers/${customer}`).then((c) => !c.deleted, () => false))) customer = undefined;
   const s = await stripe("POST", "/checkout/sessions", {
     mode: "subscription",
-    "line_items[0][price]": process.env.STRIPE_PRICE_ID!,
+    "line_items[0][price]": (await thePrice()).id,
     "line_items[0][quantity]": "1",
     ...(customer ? { customer } : { customer_email: email }),
     client_reference_id: email,
@@ -89,7 +128,8 @@ export async function onEvent(pool: Pool, event: any): Promise<string | undefine
   else if (typeof event.type === "string" && event.type.startsWith("customer.subscription.")) subscription = o.id;
   if (!subscription) return;
   const sub = await stripe("GET", `/subscriptions/${subscription}`);
-  if (sub.items?.data?.every((i: any) => i.price?.id !== process.env.STRIPE_PRICE_ID)) return; // some other product on the same Stripe account
+  // Some other product on the same Stripe account. Subscriptions from before the price changed still count.
+  if (sub.items?.data?.every((i: any) => i.price?.id !== process.env.STRIPE_PRICE_ID && i.price?.lookup_key !== LOOKUP_KEY)) return;
   const email = String(sub.metadata?.email ?? o.client_reference_id ?? "").toLowerCase();
   if (!email) return;
   await pool.query(

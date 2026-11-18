@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, test } from "node:test";
-import { billingOn, checkout, onEvent, planFor, verified } from "../grove/src/billing.ts";
+import { billingOn, checkout, onEvent, planFor, thePrice, verified } from "../grove/src/billing.ts";
 
 const SECRET = "whsec_test";
 const header = (body: string, secret = SECRET, t = Math.floor(Date.now() / 1000)) => `t=${t},v1=${createHmac("sha256", secret).update(`${t}.${body}`).digest("hex")}`;
@@ -60,8 +60,8 @@ test("billing is only on with both a key and a price", () => {
 });
 
 test("plan: free by default, paid while the subscription is good", async () => {
-  assert.deepEqual(await planFor(fakePool(), "a@b.c"), { plan: "free", apps: 25, customer: undefined, status: "none" });
-  assert.equal((await planFor(fakePool([{ customer: "cus_1", status: "active" }]), "a@b.c")).apps, 250);
+  assert.deepEqual(await planFor(fakePool(), "a@b.c"), { plan: "free", apps: 5, customer: undefined, status: "none" });
+  assert.equal((await planFor(fakePool([{ customer: "cus_1", status: "active" }]), "a@b.c")).apps, 10);
   assert.equal((await planFor(fakePool([{ customer: "cus_1", status: "trialing" }]), "a@b.c")).plan, "paid");
   for (const status of ["canceled", "past_due", "unpaid", "incomplete"]) assert.equal((await planFor(fakePool([{ customer: "cus_1", status }]), "a@b.c")).plan, "free", status);
   process.env.APPS_PER_PERSON = "2";
@@ -69,17 +69,38 @@ test("plan: free by default, paid while the subscription is good", async () => {
   delete process.env.APPS_PER_PERSON;
 });
 
-test("more apps for the asking: a step at a time on the free plan, up to its ceiling, and only when nearly full", async () => {
+test("more apps for the asking: none by default; when a ceiling is set, a step at a time and only when nearly full", async () => {
   const { askForMore } = await import("../grove/src/billing.ts");
-  assert.match((await askForMore(fakePool(), "a@b.c", "a shop for my sister", 10)).note, /still room for 15 more/);
-  const more = await askForMore(fakePool(), "a@b.c", "a shop for my sister", 24);
-  assert.deepEqual([more.granted, more.apps], [true, 50]);
-  const most = await askForMore(fakePool([{ allowed: 100 }]), "a@b.c", "more", 99);
-  assert.equal(most.granted, false);
-  assert.match(most.note, /100 is the most the free plan goes to/);
-  assert.equal((await planFor(fakePool([{ allowed: 75 }]), "a@b.c")).apps, 75);
-  assert.equal((await planFor(fakePool([{ allowed: 9999 }]), "a@b.c")).apps, 100, "never past the ceiling");
-  assert.equal((await askForMore(fakePool([{ customer: "c", status: "active" }]), "a@b.c", "more", 249)).granted, false);
+  assert.equal((await askForMore(fakePool(), "a@b.c", "a shop for my sister", 5)).granted, false, "the free plan is 5, full stop");
+  process.env.FREE_APPS_MAX = "100";
+  process.env.APPS_PER_PERSON = "25";
+  try {
+    assert.match((await askForMore(fakePool(), "a@b.c", "a shop", 10)).note, /still room for 15 more/);
+    const more = await askForMore(fakePool(), "a@b.c", "a shop", 24);
+    assert.deepEqual([more.granted, more.apps], [true, 50]);
+    assert.equal((await planFor(fakePool([{ allowed: 9999 }]), "a@b.c")).apps, 100, "never past the ceiling");
+  } finally {
+    delete process.env.FREE_APPS_MAX;
+    delete process.env.APPS_PER_PERSON;
+  }
+});
+
+test("the paid plan's price: round numbers in five currencies, made once in Stripe and found again by its key", async () => {
+  const { PLAN_AMOUNTS, LOOKUP_KEY, thePrice } = await import("../grove/src/billing.ts");
+  assert.deepEqual(Object.keys(PLAN_AMOUNTS), ["usd", "gbp", "eur", "cad", "aud"]);
+  for (const a of Object.values(PLAN_AMOUNTS)) assert.equal(a % 100, 0, "whole units");
+  process.env.STRIPE_PRICE_ID = "price_old";
+  stripeAnswers({
+    [`/prices?lookup_keys[]=${LOOKUP_KEY}&active=true&expand[]=data.currency_options`]: { data: [] },
+    "/prices/price_old": { id: "price_old", product: "prod_grove" },
+    "/prices?expand[]=currency_options": { id: "price_new", currency: "usd", unit_amount: 1000, recurring: { interval: "month" }, currency_options: { gbp: { unit_amount: 1000 }, eur: { unit_amount: 1000 }, cad: { unit_amount: 1400 }, aud: { unit_amount: 1500 } } },
+  });
+  const p = await thePrice();
+  assert.equal(p.id, "price_new");
+  assert.deepEqual(p.prices, { usd: "$10", gbp: "£10", eur: "€10", cad: "C$14", aud: "A$15" });
+  const made = calls.find((c) => c.method === "POST" && c.path.startsWith("/prices"))!;
+  const sent = new URLSearchParams(made.body);
+  assert.deepEqual([sent.get("product"), sent.get("currency"), sent.get("unit_amount"), sent.get("lookup_key"), sent.get("currency_options[gbp][unit_amount]")], ["prod_grove", "usd", "1000", LOOKUP_KEY, "1000"]);
 });
 
 test("webhook event: a new subscription to our plan is recorded against the person's email", async () => {
@@ -119,7 +140,7 @@ test("checkout: asks Stripe for a subscription page for this person and returns 
   assert.equal(await checkout("a@b.c", "https://grove.example"), "https://checkout.stripe.com/c/pay/cs_test_1");
   const sent = new URLSearchParams(calls[0].body);
   assert.equal(sent.get("mode"), "subscription");
-  assert.equal(sent.get("line_items[0][price]"), "price_ours");
+  assert.equal(sent.get("line_items[0][price]"), (await thePrice()).id, "the plan's own price, in every currency it is sold in");
   assert.equal(sent.get("customer_email"), "a@b.c");
   assert.equal(sent.get("subscription_data[metadata][email]"), "a@b.c");
   assert.equal(sent.get("success_url"), "https://grove.example/account?paid=1");
