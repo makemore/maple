@@ -44,6 +44,9 @@ export default defineConfig({
         FILES_URL: { value: process.env.FILES_URL, required: false, onUndefined: "skip" },
         // SAFE_BROWSING_KEY: a Google Safe Browsing API key; links in a change are checked before it ships.
         SAFE_BROWSING_KEY: { value: process.env.SAFE_BROWSING_KEY, required: false, onUndefined: "skip" },
+        // Own domains for apps (Cloudflare for SaaS on the apps zone): a token that can edit its custom hostnames, and the zone's id.
+        CF_API_TOKEN: { value: process.env.CF_API_TOKEN, required: false, onUndefined: "skip" },
+        CF_ZONE_ID: { value: process.env.CF_ZONE_ID, required: false, onUndefined: "skip" },
         // SENTRY_DSN: where Grove's errors go (a Sentry project's DSN).
         SENTRY_DSN: { value: process.env.SENTRY_DSN, required: false, onUndefined: "skip" },
         // ANTHROPIC_API_KEY: turns on the AI review of public pages before they ship.

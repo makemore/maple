@@ -24,6 +24,7 @@ import { OWNER_SCHEMA, owns } from "./owner.ts";
 import { shell } from "./site.ts";
 import { importTools } from "./tools-import.ts";
 import { adminTools } from "./tools-admin.ts";
+import { DOMAINS_SCHEMA, domainTools } from "./tools-domains.ts";
 import { watchErrors } from "./errors.ts";
 import { digest, stats } from "./stats.ts";
 import { AUTO_PAUSE_REPORTS, NEW_APPS, NEW_DAYS, SAFETY_SCHEMA, aiReview, blocking, dangerousUrls, disposable, distinctReports, nameProblem, outsideUrls, personEmailsPerDay, personEmailsToday, publicText, trustOf } from "./safety.ts";
@@ -46,7 +47,7 @@ create table if not exists changes (
   app text not null, name text not null, version bigint not null, base bigint not null, branch_id text, url text,
   updated_at timestamptz not null default now(), primary key (app, name));
 create table if not exists waitlist (
-  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}${GUARD_SCHEMA}${METER_SCHEMA}${SERVICES_SCHEMA}${UPKEEP_SCHEMA}${OWNER_SCHEMA}${SAFETY_SCHEMA}`;
+  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}${GUARD_SCHEMA}${METER_SCHEMA}${SERVICES_SCHEMA}${UPKEEP_SCHEMA}${OWNER_SCHEMA}${SAFETY_SCHEMA}${DOMAINS_SCHEMA}`;
 
 const DOMAIN = process.env.APPS_DOMAIN;
 
@@ -541,6 +542,7 @@ function tools(server: McpServer, ctx: Ctx) {
     },
   );
 
+  domainTools(server, { pool, ctx, appFor, mustAgree, notPaused });
   adminTools(server, { pool, ctx, init, appFor, makerOnly, pause, putUpAgain });
   importTools(server, { pool, ctx, site, sign, appFor, init, mustAgree, notPaused, changeName, filesOf, preview });
 
@@ -806,7 +808,7 @@ function tools(server: McpServer, ctx: Ctx) {
       await removeFilesOf(pool, slug);
       const { rows: ups } = await pool.query("delete from uploads where app = $1 returning id", [slug]);
       await Promise.allSettled(ups.map((u) => deleteObject(`imports/${slug}/${u.id}`)));
-      for (const t of ["changes", "versions", "app_offers", "service_calls", "pretend_payments", "site_imports"]) await pool.query(`delete from ${t} where app = $1`, [slug]);
+      for (const t of ["changes", "versions", "app_offers", "service_calls", "pretend_payments", "site_imports", "app_domains"]) await pool.query(`delete from ${t} where app = $1`, [slug]);
       await pool.query("delete from apps where slug = $1", [slug]);
       return json({ deleted: slug });
     },
@@ -1010,8 +1012,15 @@ function routes(app: import("hono").Hono<any>) {
     const given = Buffer.from(c.req.header("x-edge-secret") ?? ""), want = Buffer.from(process.env.EDGE_SECRET ?? "");
     if (want.length < 16 || given.length !== want.length || !timingSafeEqual(given, want)) return c.json({ error: "Not allowed." }, 401);
     const host = (c.req.query("host") ?? "").toLowerCase();
-    if (!DOMAIN || !host.endsWith(`.${DOMAIN}`)) return c.json({ error: "No app here." }, 404);
+    if (!DOMAIN) return c.json({ error: "No app here." }, 404);
     await init();
+    // A person's own domain is an alias: the app is asked as if at its own address ("as"), so sign-in and links carry on.
+    if (!host.endsWith(`.${DOMAIN}`)) {
+      const { rows: [d] } = await pool.query("select a.slug, a.origin, a.host from app_domains d join apps a on a.slug = d.app where d.domain = $1 and a.paused_at is null", [host]);
+      if (!d) return c.json({ error: "No app here." }, 404);
+      const as = `${d.slug}.${DOMAIN}`;
+      return d.host === "runner" ? c.json({ runner: true, as }) : d.origin ? c.json({ origin: d.origin, as }) : c.json({ error: "No app here." }, 404);
+    }
     const name = host.slice(0, -DOMAIN.length - 1);
     // A trial copy on Grove's runner has an address of its own: the app's name, two dashes, the change's name.
     const { rows: [a] } = await pool.query(
