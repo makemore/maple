@@ -297,9 +297,9 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Grove: websites and apps you make by asking</title>
-<meta name="description" content="Describe what you need in a sentence and Grove makes a website or app for it, from inside Claude or ChatGPT. Its own database, web pages, sign-in for your people, real code you can take away.">
+<meta name="description" content="Your website and the tools behind it, made and run from your AI assistant. Describe what you need or move the site you already pay for. Its own database, pages and sign-in, real code you can take away.">
 <meta property="og:title" content="Grove: websites and apps you make by asking">
-<meta property="og:description" content="Describe what you need in a sentence. Get a website or app with its own database, web pages and sign-in for your people, made from inside your AI assistant.">
+<meta property="og:description" content="Your website and the tools behind it, made and run from your AI assistant. Describe it, or move the site you already pay for.">
 <meta property="og:type" content="website">
 <link rel="icon" type="image/svg+xml" href="/icon.svg">
 <meta name="theme-color" content="#1f5135">
@@ -328,14 +328,13 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
 
 <main id="main">
   <section class="wrap hero">
-    <p class="kicker">Your own little app factory</p>
-    <h1>Say what you need. Get a website or app that does it.</h1>
-    <p class="lede">Grove turns a conversation with Claude, ChatGPT or any AI assistant into a real working website or app, with its own database, pages, tools and sign-in. Make them for yourself, or for the businesses and people around you. You never write code.</p>
+    <p class="kicker">Websites and tools, made by asking</p>
+    <h1>Your website and the tools behind it, run from your AI assistant.</h1>
+    <p class="lede">Say what you need, or point Grove at the site you already pay for. You get a real website or app with its own database, pages and sign-in, made and changed by chatting with Claude, ChatGPT or any AI assistant. Free to start, no code, and yours to take anywhere.</p>
     <div class="actions">
       <a class="btn" href="#connect">Start free</a>
-      <a class="btn quiet" href="#how">See how it works</a>
       <a class="btn quiet" href="#move">Move a site here</a>
-      <a class="btn quiet" href="#others">Make them for others</a>
+      <a class="btn quiet" href="#how">See how it works</a>
     </div>
     <p class="already">Open to everyone. <a href="${claudeLink(connect)}">Add Grove to Claude</a> or <a href="#chatgpt">add Grove to ChatGPT</a>.</p>
   </section>
