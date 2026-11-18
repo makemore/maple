@@ -1,0 +1,5 @@
+node_modules
+shims
+build.mjs
+*.md
+trial.mjs

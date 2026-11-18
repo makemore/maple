@@ -36,6 +36,18 @@ async function where(host, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     const incoming = new URL(request.url);
+    // Addresses served by Grove's shared runner (sign-in, and the apps that share it). The runner only
+    // answers requests that carry the secret, so nobody can go round the front door.
+    if (env.RUNNER_ORIGIN && (env.RUNNER_HOSTS ?? "").split(",").includes(incoming.hostname)) {
+      const upstream = new URL(env.RUNNER_ORIGIN);
+      upstream.pathname = incoming.pathname;
+      upstream.search = incoming.search;
+      const headers = new Headers(request.headers);
+      headers.delete("host");
+      headers.set("x-forwarded-host", incoming.hostname);
+      headers.set("x-edge-secret", env.EDGE_SECRET);
+      return fetch(upstream, { method: request.method, headers, body: request.body, redirect: "manual" });
+    }
     let to;
     try {
       to = await where(incoming.hostname, env, ctx);

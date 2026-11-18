@@ -14,6 +14,10 @@ export default defineConfig({
     triggers: (process.env.EDGE_ROUTES ?? "").split(",").filter(Boolean).map((pattern) => triggers.fetch({ pattern: pattern.trim(), zone: process.env.APPS_DOMAIN! })),
     env: {
       GROVE_URL: bindings.text(process.env.PUBLIC_URL!),
+      // The shared runner (runner/) and the addresses that go to it, comma-separated. For now a short list;
+      // later Grove will say which apps live there, as it does for the rest.
+      RUNNER_ORIGIN: bindings.text(process.env.RUNNER_ORIGIN ?? ""),
+      RUNNER_HOSTS: bindings.text(process.env.RUNNER_HOSTS ?? ""),
       EDGE_SECRET: bindings.secret(),
     },
   },

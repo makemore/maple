@@ -29,6 +29,16 @@ __name(where, "where");
 var worker_default = {
   async fetch(request, env, ctx) {
     const incoming = new URL(request.url);
+    if (env.RUNNER_ORIGIN && (env.RUNNER_HOSTS ?? "").split(",").includes(incoming.hostname)) {
+      const upstream2 = new URL(env.RUNNER_ORIGIN);
+      upstream2.pathname = incoming.pathname;
+      upstream2.search = incoming.search;
+      const headers2 = new Headers(request.headers);
+      headers2.delete("host");
+      headers2.set("x-forwarded-host", incoming.hostname);
+      headers2.set("x-edge-secret", env.EDGE_SECRET);
+      return fetch(upstream2, { method: request.method, headers: headers2, body: request.body, redirect: "manual" });
+    }
     let to;
     try {
       to = await where(incoming.hostname, env, ctx);

@@ -1,0 +1,14 @@
+{
+  "name": "grove-runner",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": { "start": "node server.mjs" },
+  "dependencies": {
+    "@better-auth/oauth-provider": "1.7.25",
+    "better-auth": "1.7.25",
+    "jose": "^6.0.0",
+    "miniflare": "4.20260730.0",
+    "pg": "^8.16.0"
+  }
+}
