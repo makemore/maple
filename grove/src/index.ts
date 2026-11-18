@@ -1,7 +1,7 @@
 // Grove: the MAPLE app that makes MAPLE apps. Ask it for an app and it creates the database, sign-in
 // and address, keeps the app's code, and builds and deploys it itself; then it lets the app's makers
 // change the code from the same chat, through previews, checks and one-step shipping.
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import manifest from "../maple.json" with { type: "json" };
 import { createMapleApp, z, type Ctx, type Manifest } from "../../kit/kit.ts";
@@ -15,6 +15,7 @@ import { LEGAL_SCHEMA, TERMS_VERSION, agree, agreed, privacyPage, termsOn, terms
 import { sitePage, type PaidPlan } from "./site.ts";
 import { CHANGE, MAX_FILE, RESERVED, SLUG, applyWrites, diff, merge, tooBig, withKit } from "./code.ts";
 import { TEMPLATE } from "./template-files.ts";
+import { SERVICES, SERVICES_SCHEMA, ServiceError, appEmailsPerDay, checkEmail, footer, fromName, known, pretend, pretendCheckout, pretendPayPage, pretendStatus, sendMail, whoGets } from "./services.ts";
 
 // An app's code lives here as whole versions: every saved change and every shipped state is one row.
 const schema = `
@@ -32,7 +33,7 @@ create table if not exists changes (
   app text not null, name text not null, version bigint not null, base bigint not null, branch_id text, url text,
   updated_at timestamptz not null default now(), primary key (app, name));
 create table if not exists waitlist (
-  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}${GUARD_SCHEMA}${METER_SCHEMA}`;
+  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}${GUARD_SCHEMA}${METER_SCHEMA}${SERVICES_SCHEMA}`;
 
 const DOMAIN = process.env.APPS_DOMAIN;
 
@@ -114,7 +115,7 @@ async function built(files: Files) {
 async function putUp(a: any, branch: string, archive: Record<string, string>, version: string, publicUrl?: string, first = false) {
   // Free apps carry a line about Grove at the foot of their pages; the paid plan takes it off.
   const free = (await planFor(pool, a.makers[0])).plan === "free";
-  const env = { GROVE_URL: site, GROVE_APP_SECRET: appSecret(a.slug), MAPLE_COMMIT: String(version), ...(publicUrl && { PUBLIC_URL: publicUrl }), ...(free && { GROVE_BADGE: a.slug }) };
+  const env = { GROVE_URL: site, GROVE_APP_SECRET: appSecret(a.slug), MAPLE_COMMIT: String(version), ...(publicUrl ? { PUBLIC_URL: publicUrl } : { GROVE_TRIAL: "1" }), ...(free && { GROVE_BADGE: a.slug }) };
   const { address } = await upload({ key: process.env.NEON_API_KEY!, project: a.neon_project_id, branch }, archive, env);
   const url = publicUrl ?? address;
   if (first && publicUrl && publicUrl !== address) await registerDomain(a.neon_project_id, branch, new URL(publicUrl).host);
@@ -295,6 +296,25 @@ function tools(server: McpServer, ctx: Ctx) {
       const { rowCount } = await pool.query("delete from blocked where email = $1", [who.toLowerCase()]);
       const { rows } = await pool.query("select slug from apps where $1 = any(makers) and paused_at is not null", [who.toLowerCase()]);
       return json({ unblocked: Boolean(rowCount), stillPaused: rows.map((a) => a.slug) });
+    },
+  );
+
+  server.registerTool(
+    "services",
+    {
+      title: "What Grove does for apps",
+      annotations: { readOnlyHint: true },
+      description:
+        "What Grove can do for an app so its maker sets nothing up: email (real), and payments, background work, files, text messages, AI and PDFs (pretend for now: they answer in the real shape but nothing really happens). Use it before building a feature that needs one, and to see what an app has asked for lately. With app, also lists that app's last 30 calls. Tell the person plainly which services are pretend.",
+      inputSchema: { app: z.string().optional().describe("One of the person's apps, to see what it has used") },
+    },
+    async ({ app: slug }) => {
+      await init();
+      const list = SERVICES.map((s) => ({ service: s.name, status: s.real ? "real" : "pretend for now", what: s.what, inCode: s.use }));
+      if (!slug) return json({ services: list, howTo: "Each app's AGENTS.md and src/maple/services.ts say how to call them. Apps made before services existed need update_kit first." });
+      const a = await appFor(ctx, slug);
+      const { rows } = await pool.query("select service, action, mock as pretend, trial, result, at from service_calls where app = $1 order by id desc limit 30", [a.slug]);
+      return json({ services: list, recent: rows });
     },
   );
 
@@ -739,6 +759,65 @@ function routes(app: import("hono").Hono<any>) {
         })(),
       );
     return c.json({ received: true });
+  });
+
+  // What apps ask Grove to do for them. Each app proves who it is with its own secret, as for /api/notify.
+  app.post("/api/services/:service/:action", async (c) => {
+    const { service, action } = c.req.param();
+    const secret = (c.req.header("authorization") ?? "").replace(/^Bearer /i, "");
+    if (!secret) return c.json({ error: "No app secret." }, 401);
+    await init();
+    const want = hash(secret);
+    const { rows: [a] } = await pool.query("select slug, title, url, makers, users, paused_at, secret_hash from apps where secret_hash = $1", [want]);
+    if (!a || !timingSafeEqual(Buffer.from(a.secret_hash), Buffer.from(want))) return c.json({ error: "Unknown app." }, 401);
+    if (!known(service, action)) return c.json({ error: "Grove has no such service." }, 404);
+    if (a.paused_at) return c.json({ error: "This app is paused." }, 403);
+    const body: any = await c.req.json().catch(() => ({}));
+    const trial = body?.trial === true;
+    try {
+      const { rows: [{ n }] } = await pool.query("select count(*)::int n from service_calls where app = $1 and at > now() - interval '1 hour'", [a.slug]);
+      if (n >= 600) throw new ServiceError("This app has asked Grove for too much in the last hour. Try again later.", 429);
+      let result: any, kept: any = {};
+      const id = randomUUID();
+      if (service === "email") {
+        const mail = checkEmail(body);
+        const who = whoGets(mail.to, [...a.makers, ...a.users], trial);
+        const paid = (await planFor(pool, a.makers[0])).plan !== "free";
+        const { rows: [{ sent }] } = await pool.query("select coalesce(sum(jsonb_array_length(result->'sent')), 0)::int sent from service_calls where app = $1 and service = 'email' and at > now() - interval '1 day'", [a.slug]);
+        if (sent + who.sent.length > appEmailsPerDay(paid)) throw new ServiceError(`This app has sent all the emails it can today (${appEmailsPerDay(paid)}).`, 429);
+        const went: string[] = [], failed: string[] = [];
+        for (const to of who.sent) ((await sendMail(`${fromName(a.title)} <grove@${new URL(site).host}>`, to, mail.subject, mail.text + footer(a, site), mail.replyTo ?? a.makers[0])) ? went : failed).push(to);
+        if (failed.length && !went.length) throw new ServiceError("The email could not be sent. Try again in a minute.", 502);
+        result = { sent: went, held: who.held, ...(failed.length && { failed }), ...(who.held.length && { note: "This is a trial copy, so only the app's own people were emailed. The held addresses will be emailed once the change is live." }) };
+        kept = { to: mail.to, subject: mail.subject };
+      } else if (service === "payments" && action === "checkout") result = await pretendCheckout(pool, a.slug, body, id, site);
+      else if (service === "payments") result = await pretendStatus(pool, a.slug, body);
+      else {
+        result = pretend(service, action, body, id, site);
+        const { base64: _b, html: _h, ...rest } = body ?? {};
+        kept = JSON.stringify(rest).length < 4000 ? rest : {};
+      }
+      await pool.query("insert into service_calls (app, service, action, body, result, mock, trial) values ($1, $2, $3, $4, $5, $6, $7)", [a.slug, service, action, JSON.stringify(kept), JSON.stringify(result), service !== "email", trial]);
+      return c.json(result);
+    } catch (e) {
+      if (e instanceof ServiceError) return c.json({ error: e.message }, e.status as 400);
+      throw e;
+    }
+  });
+
+  // Where a pretend payment sends people. It never asks for card details.
+  const pretendPayment = async (id: string) =>
+    (await pool.query("select p.*, a.title as app_title from pretend_payments p join apps a on a.slug = p.app where p.id = $1", [id])).rows[0];
+  app.get("/pretend/pay/:id", async (c) => {
+    await init();
+    const p = await pretendPayment(c.req.param("id"));
+    return p ? c.html(pretendPayPage(p)) : c.notFound();
+  });
+  app.post("/pretend/pay/:id", async (c) => {
+    await init();
+    await pool.query("update pretend_payments set paid_at = coalesce(paid_at, now()) where id = $1", [c.req.param("id")]);
+    const p = await pretendPayment(c.req.param("id"));
+    return p ? c.html(pretendPayPage(p)) : c.notFound();
   });
 
   app.post("/api/notify", async (c) => {

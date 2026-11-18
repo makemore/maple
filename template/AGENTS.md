@@ -62,6 +62,33 @@ database or from a visitor before putting it in HTML. Write plain HTML and CSS i
 no build step, no outside scripts needed. Don't use `/`, `/account`, `/auth/`, `/mcp` or
 `/.well-known/`: the kit owns them.
 
+## Things Grove does for the app
+
+`services` (in a tool's `ctx`, and the third argument of `routes`) has what would otherwise need
+accounts and keys. `src/maple/services.ts` lists every call with its inputs and results.
+
+| Service | Real? | For |
+|---|---|---|
+| `services.email.send({ to, subject, text })` | Yes | Confirmations, reminders, anything by email. Plain text, up to 10 addresses a call, a daily limit per app. |
+| `services.payments.checkout(...)`, `.status(id)` | Pretend | Taking a card payment on a page Grove hosts. |
+| `services.tasks.later(...)`, `.every(...)` | Pretend | Work that runs later or on a timer. |
+| `services.files.put(...)` | Pretend | Keeping photos and documents. |
+| `services.texts.send(...)` | Pretend | Text messages to phones. |
+| `services.ai.ask(...)` | Pretend | Sorting or summarising what people typed. |
+| `services.pdf.make(...)` | Pretend | Invoices, certificates, anything to print. |
+
+A pretend service answers in the shape the real one will, with `mock: true` and a `note`. Build
+with it, and always pass the note on: say plainly that no money moved, no text was sent, or the
+job won't run yet. Never present a pretend result as real. The pretend payment page lets the
+person press "pretend it was paid", so a whole payment flow can be tried.
+
+Email is real, so treat it with care: only email people who expect it, never in bulk, and say in
+the tool description that the tool sends email. On a trial copy, only the app's own people are
+emailed; other addresses come back in `held`.
+
+Don't add other ways of doing these (your own Stripe or email keys, `setTimeout` for later work):
+the app has nowhere to keep secrets and stops running between requests.
+
 ## Checks and deploys
 
 Grove keeps this code, checks it and deploys it. Saving a change checks the types and imports

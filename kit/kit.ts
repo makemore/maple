@@ -11,6 +11,7 @@ import { Hono, type Context } from "hono";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { Pool } from "pg";
 import { z } from "zod";
+import { createServices, type Services } from "./services.ts";
 import { consentPage, groveBadge, homePage, signInPage, withBadge, ICON_SVG } from "./pages.ts";
 
 export { z };
@@ -37,7 +38,10 @@ export interface Ctx {
   isMaker: boolean;
   /** Wraps data as a tool result, with the plain-English reminder as a second item (SPEC 2). */
   json: (data: unknown) => { content: { type: "text"; text: string }[] };
+  /** What Grove does for the app: email, and pretend payments, background work and more. See services.ts. */
+  services: Services;
 }
+export type { Services };
 
 export interface AppDef {
   manifest: Manifest;
@@ -50,7 +54,7 @@ export interface AppDef {
   /** Register the app's own MCP tools. */
   tools?: (server: McpServer, ctx: Ctx) => void;
   /** Extra web routes (behind sign-in if the path starts with /api/). */
-  routes?: (app: Hono<Env>, pool: Pool) => void;
+  routes?: (app: Hono<Env>, pool: Pool, services: Services) => void;
   /** The app's own front page, as HTML. With one, the signed-in page (connect steps, requests) moves to /account. */
   home?: (info: { title: string; site: string; mcpUrl: string }) => string;
 }
@@ -153,6 +157,13 @@ export function createMapleApp(def: AppDef) {
     }
     return true;
   }
+
+  const services = createServices({
+    grove: process.env.GROVE_URL,
+    secret: process.env.GROVE_APP_SECRET,
+    trial: process.env.GROVE_TRIAL === "1",
+    emailDirect: process.env.POSTMARK_TOKEN && m.email?.from ? email : undefined,
+  });
 
   async function ask(sender: string, kind: (typeof KINDS)[number], message: string, prompt?: string) {
     await init();
@@ -280,7 +291,7 @@ export function createMapleApp(def: AppDef) {
       },
     );
 
-    def.tools?.(server, { pool, person, isMaker, json });
+    def.tools?.(server, { pool, person, isMaker, json, services });
     return server;
   }
 
@@ -375,7 +386,7 @@ export function createMapleApp(def: AppDef) {
     return c.json({ title, person, maker: makerName, requests: await listRequests() });
   });
 
-  def.routes?.(app, pool);
+  def.routes?.(app, pool, services);
 
   app.on(["GET", "DELETE"], "/mcp", (c) => c.json({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed." }, id: null }, 405, { Allow: "POST" }));
   app.post("/mcp", async (c) => {
@@ -385,5 +396,5 @@ export function createMapleApp(def: AppDef) {
     return transport.handleRequest(c.req.raw);
   });
 
-  return { app, pool, init, site, mcpUrl, email };
+  return { app, pool, init, site, mcpUrl, email, services };
 }

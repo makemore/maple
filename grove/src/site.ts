@@ -2,6 +2,7 @@
 // Served by Grove itself at "/", so the site that explains MAPLE apps is one.
 // The script lives in a template string: no backticks or ${} inside it.
 import { ICON_SVG } from "../../kit/pages.ts";
+import { SERVICE_LIST } from "../../kit/services.ts";
 
 const SCRIPT = `
 const form = document.getElementById("invite-form");
@@ -164,6 +165,7 @@ section { padding-block: clamp(3rem, 8vw, 5.5rem); }
 .routes { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; font-size: .9rem; color: var(--soft); }
 .routes code { font-size: .82rem; margin-right: .4rem; }
 .tag { font-size: .75rem; font-weight: 700; padding: .1rem .5rem; border-radius: 999px; border: 1px dashed var(--soft); color: var(--soft); white-space: nowrap; }
+.services h3 .tag { margin-left: .5rem; vertical-align: middle; }
 .tag.go { border: 0; background: var(--brand); color: var(--brand-ink); }
 .reads { margin: 0; font-size: .9rem; color: var(--soft); border-left: 3px solid var(--leaf); padding-left: .7rem; }
 .stage figcaption { font-size: .9rem; color: var(--soft); text-align: center; margin-top: .9rem; }
@@ -271,6 +273,8 @@ export const shell = (title: string, body: string) => `<!doctype html>
 const GITHUB_SVG = `<svg aria-hidden="true" viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>`;
 
 const claudeLink = (connect: string) => `https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=Grove&connectorUrl=${encodeURIComponent(connect)}`;
+
+const SERVICE_TITLES: Record<string, string> = { email: "Email", payments: "Payments", tasks: "Background work", files: "Files and photos", texts: "Text messages", ai: "AI inside the app", pdf: "PDFs" };
 
 export type PaidPlan = { price: string; apps: number };
 
@@ -448,8 +452,8 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
         <div class="no">
           <h3>Not yet</h3>
           <ul>
-            <li>Taking card payments. Coming, built in, with nothing for you to set up</li>
-            <li>Work that runs on a timer or in the background. Coming too</li>
+            <li>Real card payments. You can build with pretend ones today</li>
+            <li>Work that runs on a timer or in the background. Pretend for now too</li>
             <li>Phone apps you get from an app store</li>
             <li>Medical records, or anything where a mistake could hurt someone</li>
           </ul>
@@ -481,6 +485,15 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
       <li><h3><span class="letter">L</span>A way to ask for more</h3><p>Anyone using the app can ask its maker for a change, right in the chat.</p></li>
       <li><h3><span class="letter">E</span>Email built in</h3><p>For sign-in codes and for those requests. Nothing to set up.</p></li>
       <li><h3><span class="letter">+</span>Trial copies and undo</h3><p>Grove adds these on top: every change is tried first, and anything shipped can be taken back.</p></li>
+    </ul>
+  </section>
+
+  <section class="wrap" id="services">
+    <p class="kicker">Built in</p>
+    <h2>The awkward parts, already done</h2>
+    <p class="intro">Normally these mean opening accounts, copying keys and reading manuals. In Grove your app just asks for them. Email works today. The rest can be built against now in a pretend mode that says clearly nothing real happened, and switch to the real thing as each arrives.</p>
+    <ul class="cards services">
+      ${SERVICE_LIST.map((x) => `<li><h3>${SERVICE_TITLES[x.name]}<span class="tag ${x.real ? "go" : "soon"}">${x.real ? "Ready" : "Pretend for now"}</span></h3><p>${x.what}</p></li>`).join("\n      ")}
     </ul>
   </section>
 
