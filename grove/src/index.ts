@@ -69,7 +69,7 @@ function paidPlan() {
 }
 paidPlan();
 
-const { app, pool, init, email, site } = createMapleApp({ manifest: manifest as Manifest, slug: "grove", schema, guide, tools, routes, home: ({ mcpUrl }) => sitePage(mcpUrl, Number(process.env.APPS_PER_PERSON ?? 5), paidPlan(), process.env.GROVE_REPO_URL) });
+const { app, pool, init, email, site } = createMapleApp({ manifest: { ...(manifest as Manifest), auth: { ...manifest.auth, open: manifest.auth.open && !process.env.GROVE_INVITE_ONLY } }, slug: "grove", schema, guide, tools, routes, home: ({ mcpUrl }) => sitePage(mcpUrl, Number(process.env.APPS_PER_PERSON ?? 5), paidPlan(), process.env.GROVE_REPO_URL) });
 
 async function appFor(ctx: Ctx, slug: string) {
   await init();
@@ -710,7 +710,7 @@ function routes(app: import("hono").Hono<any>) {
     const { rows: [{ n }] } = await pool.query("select count(*)::int n from waitlist where created_at > now() - interval '1 day'");
     if (n >= 200) return c.json({ message: "The list is full for today. Please try again tomorrow." }, 429);
     await pool.query("insert into waitlist (email, idea) values ($1, $2) on conflict (email) do nothing", [address, typeof body.idea === "string" ? body.idea.trim().slice(0, 1000) || null : null]);
-    return c.json({ message: "Thanks. You're on the list, and we'll be in touch." });
+    return c.json({ message: "Thanks. We've got it." });
   });
 
   // The download link export_app gives out: the app's code as a zip. The link is signed and lasts an hour.

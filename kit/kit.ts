@@ -22,7 +22,7 @@ export interface Manifest {
   title?: string;
   description?: string;
   maker: { name: string; email: string };
-  auth?: { allowed?: string[]; allowedDomains?: string[] };
+  auth?: { allowed?: string[]; allowedDomains?: string[]; /** Anyone with a verified email can sign in, as a user. */ open?: boolean };
   mcp?: { audience?: "everyone" | "technical" };
   loop?: { to?: string; tool?: string; dailyLimit?: number };
   email?: { from?: string };
@@ -111,6 +111,7 @@ export function createMapleApp(def: AppDef) {
     if (!email) return null;
     const { rows: [p] } = await pool.query("select email, role from maple_people where email = $1", [email]);
     if (p) return p;
+    if (m.auth?.open) return { email, role: "user" };
     const domain = email.split("@")[1];
     return (m.auth?.allowedDomains ?? []).some((d) => d.toLowerCase() === domain) ? { email, role: "user" } : null;
   }
@@ -240,8 +241,10 @@ export function createMapleApp(def: AppDef) {
       },
       async () => {
         await init();
+        // An app anyone can sign in to doesn't show its people to each other.
+        if (m.auth?.open && person.role !== "maker") return json({ people: [{ email: person.email, role: person.role }], open: true });
         const { rows } = await pool.query("select email, role, added_at from maple_people order by role, email");
-        return json({ people: rows, allowedDomains: m.auth?.allowedDomains ?? [] });
+        return json({ people: rows, allowedDomains: m.auth?.allowedDomains ?? [], ...(m.auth?.open && { open: true }) });
       },
     );
 

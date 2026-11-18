@@ -98,6 +98,10 @@
           },
           "uniqueItems": true
         },
+        "open": {
+          "type": "boolean",
+          "description": "Anyone with a verified email can sign in, as a user."
+        },
         "allowedDomains": {
           "type": "array",
           "items": {

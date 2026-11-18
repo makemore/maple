@@ -45,6 +45,8 @@ export default defineConfig({
         PAID_APPS_PER_PERSON: { value: process.env.PAID_APPS_PER_PERSON, required: false },
         // Tokens of tool traffic in a day before Grove stops and asks the person whether to carry on (default 150000).
         USAGE_WARN_TOKENS: { value: process.env.USAGE_WARN_TOKENS, required: false },
+        // Set to anything to close sign-up again: only people on the list can then sign in.
+        GROVE_INVITE_ONLY: { value: process.env.GROVE_INVITE_ONLY, required: false },
         // Where the code is public. With it, the front page says "open source" and links there.
         GROVE_REPO_URL: { value: process.env.GROVE_REPO_URL, required: false },
         // Who runs this Grove, for its terms and privacy pages. Until both are set the pages are drafts and nobody is asked to agree.

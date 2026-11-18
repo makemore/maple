@@ -327,11 +327,11 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
     <h1>Say what you need. Get a website or app that does it.</h1>
     <p class="lede">Grove turns a conversation with Claude, ChatGPT or any AI assistant into a real working website or app, with its own database, pages, tools and sign-in. Make them for yourself, or for the businesses and people around you. You never write code.</p>
     <div class="actions">
-      <a class="btn" href="#invite">Ask for an invite</a>
+      <a class="btn" href="#connect">Start free</a>
       <a class="btn quiet" href="#how">See how it works</a>
       <a class="btn quiet" href="#others">Make them for others</a>
     </div>
-    <p class="already">Already invited? <a href="${claudeLink(connect)}">Add Grove to Claude</a> or <a href="#chatgpt">add Grove to ChatGPT</a>.</p>
+    <p class="already">Open to everyone. <a href="${claudeLink(connect)}">Add Grove to Claude</a> or <a href="#chatgpt">add Grove to ChatGPT</a>.</p>
   </section>
 
   <div class="wrap">
@@ -514,14 +514,14 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
     <div class="wrap">
       <p class="kicker">Add Grove</p>
       <h2>Add Grove to your assistant</h2>
-      <p class="intro">You do this once. After that, you make and use your apps by chatting. You need an invite first.</p>
+      <p class="intro">You do this once. After that, you make and use your apps by chatting. Anyone can join, and it is free to start.</p>
       <div class="connect">
         <div>
           <h3>Claude</h3>
           <ol>
             <li>Press the button. Claude opens with Grove's name and address already filled in.</li>
             <li>Press <strong>Add</strong>, then <strong>Connect</strong>.</li>
-            <li>Sign in with the email you were invited with. A code arrives by email.</li>
+            <li>Sign in with your email. A code arrives to confirm it is yours.</li>
           </ol>
           <p><a class="btn" href="${claudeLink(connect)}">Add Grove to Claude</a></p>
           <p class="note">Works on every Claude plan, in the browser and in the apps.</p>
@@ -533,7 +533,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
               <div class="copy"><code>${connect}</code><button class="btn quiet small" type="button" data-copy="${connect}">Copy</button><span role="status" aria-live="polite"></span></div>
             </li>
             <li>In ChatGPT, open <strong>Settings</strong>, then <strong>Apps &amp; Connectors</strong>. Under <strong>Advanced settings</strong>, turn on <strong>Developer mode</strong>.</li>
-            <li>Press <strong>Create</strong>, name it Grove, paste the address, and sign in with the email you were invited with.</li>
+            <li>Press <strong>Create</strong>, name it Grove, paste the address, and sign in with your email.</li>
           </ol>
           <p><a class="btn" href="https://chatgpt.com/#settings/Connectors">Open ChatGPT's settings</a></p>
           <p class="note">ChatGPT has no one-press way to add an app yet, and needs a paid ChatGPT plan for this.</p>
@@ -587,7 +587,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
         <details><summary>What if Grove gets something wrong?</summary><p>It will sometimes. That's why every change goes to a trial copy first and can be undone after. Check that an app does what you meant before you rely on it.</p></details>
         <details><summary>Can I make things for other people or businesses?</summary><p>Yes, and we hope you do. You stay the maker: you name who can use it, they ask you for changes, and you can hand them the code and the information at any time. What you charge them is up to you.</p></details>
         <details><summary>Can I leave?</summary><p>Yes, with everything. You can download any app's code and take a copy of its information at any time, and the app runs without Grove.</p></details>
-        <details><summary>Why is it invite-only?</summary><p>Grove is new, and each app is a real running program. We're letting people in gradually so it stays reliable for those already using it.</p></details>
+        <details><summary>Who can join?</summary><p>Anyone. Add Grove to your assistant and sign in with your email. It is new, so expect rough edges, and tell us when you hit one.</p></details>
       </div>
     </div>
   </section>
@@ -595,14 +595,14 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
   <section class="deep" id="invite">
     <div class="wrap invite">
       <div>
-        <p class="kicker">Get started</p>
-        <h2>Ask for an invite</h2>
-        <p class="intro">Leave your email and, if you like, the job you have in mind. We read every one, and it helps us decide who to let in next.</p>
+        <p class="kicker">Keep in touch</p>
+        <h2>Not ready yet? Tell us what you'd make</h2>
+        <p class="intro">You can <a href="#connect">add Grove now</a>. Or leave your email and the job you have in mind. We read every one, and it shapes what we build next.</p>
       </div>
       <form id="invite-form">
         <div><label for="email">Your email</label><input id="email" name="email" type="email" autocomplete="email" required maxlength="200"></div>
         <div><label for="idea">What would you make? <span>(if you like)</span></label><textarea id="idea" name="idea" rows="3" maxlength="1000"></textarea></div>
-        <div><button class="btn">Ask for an invite</button></div>
+        <div><button class="btn">Send</button></div>
         <p id="invite-msg" role="status" aria-live="polite"></p>
       </form>
     </div>
