@@ -87,9 +87,10 @@ function tool(cmd, args, input) {
 }
 
 /** An app's tables and everything in them, as SQL. With `as`, written for a schema of that name instead of its own. */
-export async function dumpApp(slug, as) {
+export async function dumpApp(slug, as, inserts = false) {
   const { role } = loginFor(named(slug));
-  const sql = await tool("pg_dump", ["--schema", role, "--no-owner", "--no-privileges", "--no-comments", process.env.DATABASE_URL]);
+  // With inserts, the rows are written as ordinary statements, which any database connection can run (slower, but needs no special tool).
+  const sql = await tool("pg_dump", ["--schema", role, "--no-owner", "--no-privileges", "--no-comments", ...(inserts ? ["--inserts", "--rows-per-insert=200"] : []), process.env.DATABASE_URL]);
   // The login's name is a long random-looking word that appears nowhere else, so swapping it is safe.
   return sql.split("\n").filter((l) => !/^CREATE SCHEMA /.test(l) && !/^\\(un)?restrict /.test(l)).join("\n").replaceAll(`"${role}"`, `"${as ?? role}"`).replaceAll(role, as ?? role);
 }

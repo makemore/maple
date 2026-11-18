@@ -34,6 +34,8 @@ export const auth = betterAuth({
   disabledPaths: ["/token"],
   trustedOrigins: [SIGNIN_URL()],
   rateLimit: { enabled: true, window: 60, max: 60 },
+  // Who is asking, for the limits above: the front door passes on the visitor's address.
+  advanced: { ipAddress: { ipAddressHeaders: ["x-client-ip"] } },
   plugins: [
     emailOTP({ sendVerificationOTP: ({ email, otp }) => sendCode(email, otp), otpLength: 6, expiresIn: 300 }),
     jwt({ disableSettingJwtHeader: true }),

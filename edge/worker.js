@@ -5,7 +5,7 @@
 // It asks Grove where an app lives (and the secret the app expects), and remembers the answer for a
 // few minutes, and for much longer if Grove can't be reached, so apps stay up when Grove is down.
 
-const FRESH_SECONDS = 300;
+const FRESH_SECONDS = 60;
 const KEEP_SECONDS = 60 * 60 * 24 * 7;
 const memory = new Map(); // host -> { at, where }
 

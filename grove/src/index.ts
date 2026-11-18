@@ -396,7 +396,7 @@ function tools(server: McpServer, ctx: Ctx) {
     {
       title: "Create an app",
       description:
-        "Creates a new app and puts it live: its own Postgres database, email-code sign-in, its own address and a Claude connector, starting from the MAPLE template. The person asking becomes its maker. users are the emails of the people it is for, who can sign in (more can be added later from inside the app). Takes about 20 seconds. Then build the described features with write_files. Confirm the name and who it is for first.",
+        "Creates a new app and puts it live: its own private Postgres tables (on the paid plan, a whole database of its own), email-code sign-in, its own address and a Claude connector, starting from the MAPLE template. The person asking becomes its maker. users are the emails of the people it is for, who can sign in (more can be added later from inside the app). Takes about 20 seconds. Then build the described features with write_files. Confirm the name and who it is for first.",
       inputSchema: {
         name: z.string().regex(SLUG).describe("Short lowercase name; it becomes the app's address, e.g. river-rowing-fees"),
         title: z.string().min(2).max(60).describe("Name people see, e.g. 'Club Helper'"),
@@ -510,7 +510,7 @@ function tools(server: McpServer, ctx: Ctx) {
       await mustAgree();
       const p = await planFor(pool, person.email);
       if (p.plan === "paid") throw new Error("Already on the paid plan. manage_billing changes or cancels it.");
-      return json({ payHere: await checkout(person.email, site, p.customer), price: await priceText(), next: "Once paid, the plan tool shows the paid plan within a minute." });
+      return json({ payHere: await checkout(person.email, site, p.customer), price: await priceText(), next: "Once paid, the plan tool shows the paid plan within a minute. Apps made from then on get a database of their own; move_to_own_database moves an existing one." });
     },
   );
 
@@ -702,6 +702,55 @@ function tools(server: McpServer, ctx: Ctx) {
       await putUp(a, a.branch_id, archive, version, a.url);
       await pool.query("update apps set live = $2 where slug = $1", [slug, version]);
       return json({ rolledBack: rows[0].message, version, next: `${SWITCH}; app_status says when it is live.` });
+    },
+  );
+
+  server.registerTool(
+    "move_to_own_database",
+    {
+      title: "Give an app a database of its own",
+      description:
+        "For the paid plan: moves an app from Grove's shared home for free apps to a database of its own, with no daily limits and its information reachable directly. The address, code and information stay the same. The app is offline for a few minutes while it moves, and everyone who uses it from an assistant has to connect and sign in again afterwards, because sign-in moves too. Ship or drop any open changes first. Explain all of that and get a clear yes before doing it.",
+      inputSchema: { app: z.string(), confirm: z.string().describe("The app's name again, as typed by the person") },
+    },
+    async ({ app: slug, confirm }) => {
+      await mustAgree();
+      const a = await appFor(ctx, slug);
+      notPaused(a);
+      if (confirm !== slug) throw new Error("confirm must be the app's name, typed by the person.");
+      if (!onRunner(a)) throw new Error(`${slug} already has a database of its own.`);
+      if (!ctx.isMaker && (await planFor(pool, person.email)).plan !== "paid") throw new Error("A database of its own comes with the paid plan. The upgrade tool gives a payment link.");
+      const { rows: [{ open, total }] } = await pool.query("select (select count(*) from changes where app = $1)::int open, (select count(*) from apps where host = 'neon')::int total", [slug]);
+      if (open) throw new Error(`${slug} has ${open} open change${open === 1 ? "" : "s"}. Ship or drop them first.`);
+      if (total >= Number(process.env.GROVE_MAX_APPS ?? 80)) throw new Error("There is no room for another database of its own right now. Ask the Grove maker.");
+      const files = await filesOf(a.live);
+      const archive = await built(files);
+      // Stop the app first, so nothing is written while its information is copied.
+      await runner.pause(slug, true);
+      let made: { project: string; branch: string } | undefined;
+      try {
+        const data = await runner.dump(slug, true);
+        made = await createProject(slug);
+        // A direct connection, not the shared pool: the file changes settings for its own session, and on a
+        // pooled connection those would be left behind for the app to trip over.
+        const db = new Client({ connectionString: (await connectionUri(made.project, made.branch)).replace("-pooler.", ".") });
+        await db.connect();
+        try {
+          await db.query(data.replace(/^SELECT pg_catalog\.set_config\('search_path', '', false\);$/m, ""));
+          await db.query("reset all");
+        } finally {
+          await db.end();
+        }
+        const moved = { ...a, host: "neon", neon_project_id: made.project, branch_id: made.branch };
+        await putUp(moved, made.branch, archive, a.live, a.url, true);
+        await pool.query("update apps set host = 'neon', neon_project_id = $2, branch_id = $3 where slug = $1", [slug, made.project, made.branch]);
+      } catch (e) {
+        if (made) await deleteProject(made.project).catch(() => {});
+        await runner.pause(slug, false).catch(() => {});
+        throw e;
+      }
+      await runner.remove(slug).catch((e) => console.error(`old copy of ${slug} not removed:`, e));
+      return json({ moved: slug, address: a.url, next: "It can take a few minutes before the address answers from its new home. Tell everyone who uses it from an assistant to remove the connection and add it again, then sign in." });
     },
   );
 

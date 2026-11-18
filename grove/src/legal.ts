@@ -87,7 +87,8 @@ export const privacyPage = () =>
   <p>Your AI assistant (such as Claude or ChatGPT) sees what passes between it and your apps. That is covered by your agreement with whoever provides the assistant, not by Grove.</p>
   <h2>Who helps us run Grove</h2>
   <ul>
-    <li><strong>Neon</strong> runs the apps, their databases and sign-in. Information is stored in the United States.</li>
+    <li><strong>Neon</strong> keeps the databases, and runs Grove itself and apps that have a database of their own. Information is stored in the United States.</li>
+    <li><strong>Google Cloud</strong> runs apps on the free plan and the sign-in for them, in the United States.</li>
     <li><strong>Stripe</strong> takes payments.</li>
     <li><strong>Postmark</strong> sends emails.</li>
     <li><strong>Cloudflare</strong> directs visitors to Grove and its apps.</li>

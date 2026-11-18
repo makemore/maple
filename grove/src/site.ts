@@ -314,6 +314,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
       <ul>
         <li><a href="#how">How it works</a></li>
         <li><a href="#make">What people make</a></li>
+        <li><a href="#move">Move in</a></li>
         <li><a href="#others">For others</a></li>
         <li><a href="#yours">It's yours</a></li>
         <li><a href="#price">Price</a></li>
@@ -333,6 +334,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
     <div class="actions">
       <a class="btn" href="#connect">Start free</a>
       <a class="btn quiet" href="#how">See how it works</a>
+      <a class="btn quiet" href="#move">Move a site here</a>
       <a class="btn quiet" href="#others">Make them for others</a>
     </div>
     <p class="already">Open to everyone. <a href="${claudeLink(connect)}">Add Grove to Claude</a> or <a href="#chatgpt">add Grove to ChatGPT</a>.</p>
@@ -458,6 +460,42 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
             <li>Medical records, or anything where a mistake could hurt someone</li>
           </ul>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap" id="move">
+    <p class="kicker">Move in</p>
+    <h2>Bring over what you already pay for, and stop paying for it</h2>
+    <p class="intro">Paying every month for website hosting, a site builder, a pile of plugins or a tool charged per person? Tell your assistant where it lives now. Grove copies your content into an app you own, rebuilds the parts you actually use, and your old one keeps running until you're happy to switch. The first ${free} apps are free.</p>
+    <ul class="cards">
+      <li><h3>A WordPress site</h3><p class="say">"Move my WordPress site over, posts and all."</p><p>Pages, posts, categories and images come across from WordPress's own export. Contact forms and galleries become part of the app, so there's no hosting plan, security plugin or plugin licence to renew.</p></li>
+      <li><h3>A site-builder site</h3><p class="say">"Copy my Squarespace site and keep the same pages."</p><p>Wix, Squarespace and the like. Your pages, words and pictures, copied from your live site into pages you change by asking. No monthly builder plan.</p></li>
+      <li><h3>Forms and sign-ups</h3><p class="say">"Rebuild my Typeform and tell me who signed up this week."</p><p>The questions become a page and the answers land in your own database. No caps on how many replies you get.</p></li>
+      <li><h3>Bookings</h3><p class="say">"Replace my booking tool. Same slots, same reminder emails."</p><p>A page where people ask for a time, reminders that send themselves, and a helper that knows who's coming.</p></li>
+      <li><h3>Spreadsheets and bases</h3><p class="say">"Here's our Airtable export. Make it something we can ask about."</p><p>A CSV or Excel export turns into proper linked tables, with no charge per person who uses them.</p></li>
+      <li><h3>Trackers and small CRMs</h3><p class="say">"Bring our customers and follow-ups over from the CRM."</p><p>Customers, jobs and who's on them, without paying per seat. Name your people and they sign in.</p></li>
+      <li><h3>Club and member lists</h3><p class="say">"Move our members and fixtures off the club platform."</p><p>Members, fees owed, fixtures and a public sign-up page, all on one database.</p></li>
+      <li><h3>Link and event pages</h3><p class="say">"Make me a links page like my Linktree, and an events list."</p><p>The small pages people pay a monthly fee for, rebuilt as pages that are yours.</p></li>
+    </ul>
+    <div class="fit">
+      <div>
+        <h3>How moving works</h3>
+        <ul>
+          <li>Grove copies what's on your public pages, or what you export from the old tool</li>
+          <li>It rebuilds what a plugin or feature does, not the plugin itself</li>
+          <li>Everything lands on a trial copy first, for you to check</li>
+          <li>Your old site keeps running until you decide to switch</li>
+          <li>Whatever you move, you can download again and host anywhere</li>
+        </ul>
+      </div>
+      <div class="no">
+        <h3>What we won't do</h3>
+        <ul>
+          <li>Copy a site that isn't yours. Only move what you own, or look after with the owner's say-so</li>
+          <li>Build pages made to look like a bank, a login page or someone else's brand. Grove checks for these and turns them away</li>
+          <li>Move a shop's card checkout yet. Real card payments are still to come</li>
+        </ul>
       </div>
     </div>
   </section>
@@ -604,6 +642,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
         <details><summary>Does it use up my Claude or ChatGPT allowance?</summary><p>Yes. Making and changing apps is work your assistant does, so it counts against your plan with them. Using an app is light; building one is heavier. Grove keeps count, tells you how big a job is, and stops to ask before a day's work gets large.</p></details>
         <details><summary>What if Grove gets something wrong?</summary><p>It will sometimes. That's why every change goes to a trial copy first and can be undone after. Check that an app does what you meant before you rely on it.</p></details>
         <details><summary>Can I make things for other people or businesses?</summary><p>Yes, and we hope you do. You stay the maker: you name who can use it, they ask you for changes, and you can hand them the code and the information at any time. What you charge them is up to you.</p></details>
+        <details><summary>Can I move my existing website or tools here?</summary><p>Yes, if they're yours. Tell your assistant where the site lives now, or hand it an export (WordPress's export file, a CSV, a spreadsheet). Grove copies your content to a trial copy and rebuilds the features you use. Your old site keeps running until you switch, so you can stop paying for hosting and plugins once you're happy. Grove won't copy sites you don't own or run.</p></details>
         <details><summary>Can I leave?</summary><p>Yes, with everything. You can download any app's code and take a copy of its information at any time, and the app runs without Grove.</p></details>
         <details><summary>Who can join?</summary><p>Anyone. Add Grove to your assistant and sign in with your email. It is new, so expect rough edges, and tell us when you hit one.</p></details>
       </div>

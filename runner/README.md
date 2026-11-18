@@ -21,9 +21,18 @@ anything that didn't.
 
 ## Status
 
-One trial app runs on it. Grove does not yet create apps here. Not yet done: limits on how much
-processor and memory one app may use, trial copies, background work, email and files for apps on
-the runner, and a second wall around the sandbox.
+Live: Grove creates every free-plan maker's new app here, with trial copies, shipping, undo, pause,
+hand-over, export and delete. Email, files and background work go through Grove as for any app.
+
+Limits on each app: requests and database queries a day, how many requests at once, processor time
+and total time per request, time per query, rows and bytes per result.
+
+Memory: an app that has been used stays loaded, about 14 MB each (measured). So the runner holds a
+set number of apps per sandbox (`MAX_WARM_APPS`), then starts a fresh sandbox and closes the old
+one once it is idle. At most two exist at a time.
+
+Not done: a memory limit on one app by itself (a greedy app can still take the whole sandbox down,
+which then restarts), and spreading apps over more than one database server.
 
 ## Commands (from the repo root)
 

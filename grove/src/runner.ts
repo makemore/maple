@@ -35,4 +35,4 @@ export const pause = (name: string, paused: boolean) => call("POST", `/apps/${na
 /** Runs statements in the app's own tables, as the app. */
 export const sql = (name: string, statements: { text: string; values?: unknown[] }[]) => call("POST", `/apps/${name}/sql`, { statements }).then(() => undefined);
 /** The app's tables and everything in them, as SQL that loads into any Postgres. */
-export const dump = (name: string) => call("GET", `/apps/${name}/dump`).then((r) => r.text());
+export const dump = (name: string, inserts = false) => call("GET", `/apps/${name}/dump${inserts ? "?inserts=1" : ""}`).then((r) => r.text());

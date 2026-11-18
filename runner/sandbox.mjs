@@ -26,7 +26,8 @@ async function about(slug) {
   return now;
 }
 
-const mf = new Miniflare({
+/** One sandbox runtime. Apps loaded into it stay in memory (about 14 MB each, measured), so it is replaced before it fills. */
+const start = () => new Miniflare({
   modules: [{ type: "ESModule", path: "dispatcher.js", contents: readFileSync(new URL("dispatcher.js", import.meta.url), "utf8") }],
   compatibilityDate: "2026-06-01",
   compatibilityFlags: ["nodejs_compat"],
@@ -56,7 +57,45 @@ const mf = new Miniflare({
     SIGNIN: () => jwks(),
   },
 });
-await mf.ready;
+
+// How many different apps one sandbox holds before a fresh one takes over. The old one finishes what
+// it is doing and is then closed, which is what gives the memory back. An app that is used again
+// simply loads into the new one (well under a second).
+const MAX_WARM = Number(process.env.MAX_WARM_APPS ?? 40);
+const fresh = async () => {
+  const mf = start();
+  await mf.ready;
+  return { mf, warm: new Set(), busy: 0 };
+};
+/** Closes a retired sandbox as soon as it has nothing left to do, or after a while regardless. */
+function retire(old) {
+  const since = Date.now();
+  const check = setInterval(() => {
+    if ((old.busy === 0 && Date.now() - since > 3000) || Date.now() - since > REQUEST_MS + 15_000) {
+      clearInterval(check);
+      old.mf.dispose().catch(() => {});
+    }
+  }, 1000);
+  check.unref();
+}
+let now = await fresh(), turning;
+async function sandboxFor(slug) {
+  if (!now.warm.has(slug) && now.warm.size >= MAX_WARM) {
+    turning ??= (async () => {
+      const old = now;
+      now = await fresh();
+      console.log(`sandbox replaced after ${old.warm.size} apps`);
+      retire(old);
+    })().finally(() => (turning = undefined));
+    await turning;
+  }
+  now.warm.add(slug);
+  return now;
+}
+
+/** How many requests one app may have going at once. */
+const MAX_AT_ONCE = Number(process.env.APP_MAX_AT_ONCE ?? 12);
+const going = new Map();
 
 /** Runs a request in the app's box. */
 export async function run(slug, request) {
@@ -71,13 +110,25 @@ export async function run(slug, request) {
   headers.set("x-runner-version", String(a.version));
   const body = ["GET", "HEAD"].includes(request.method) ? undefined : await request.arrayBuffer();
   if (body && body.byteLength > MAX_BODY) return new Response("That is too much to send in one go.", { status: 413 });
+  if ((going.get(slug) ?? 0) >= MAX_AT_ONCE) return new Response("This app is busy. Try again in a moment.", { status: 429, headers: { "retry-after": "2" } });
+  going.set(slug, (going.get(slug) ?? 0) + 1);
   try {
-    return await mf.dispatchFetch(request.url, { method: request.method, headers, body, redirect: "manual", signal: AbortSignal.timeout(REQUEST_MS) });
+    const box = await sandboxFor(slug);
+    box.busy++;
+    try {
+      return await box.mf.dispatchFetch(request.url, { method: request.method, headers, body, redirect: "manual", signal: AbortSignal.timeout(REQUEST_MS) });
+    } finally {
+      // The answer may still be on its way out; give it a moment before this sandbox counts as idle.
+      setTimeout(() => box.busy--, 2000).unref();
+    }
   } catch (e) {
     console.error(`app ${slug} failed:`, String(e?.message ?? e).slice(0, 300));
     return new Response(e?.name === "TimeoutError" ? "This app took too long to answer." : "This app hit a problem.", { status: e?.name === "TimeoutError" ? 504 : 500 });
+  } finally {
+    const n = (going.get(slug) ?? 1) - 1;
+    n > 0 ? going.set(slug, n) : going.delete(slug);
   }
 }
 /** Forget what is remembered about an app, so a change shows straight away. */
 export const forget = (slug) => versions.delete(slug);
-export const stop = () => mf.dispose();
+export const stop = () => now.mf.dispose();

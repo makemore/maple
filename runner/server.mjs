@@ -37,7 +37,7 @@ async function adminCall(req, path) {
     if (req.method === "POST" && action === "copy-from") return Response.json(await copyApp(other, name));
     if (req.method === "POST" && action === "pause") return (await pauseApp(name, body.paused), forget(name), Response.json({ paused: Boolean(body.paused) }));
     if (req.method === "POST" && action === "sql") return Response.json({ rowCounts: await sqlAs(name, body.statements ?? []) });
-    if (req.method === "GET" && action === "dump") return new Response(await dumpApp(name, "public"), { headers: { "content-type": "application/sql" } });
+    if (req.method === "GET" && action === "dump") return new Response(await dumpApp(name, "public", req.url.includes("inserts=1")), { headers: { "content-type": "application/sql" } });
     if (req.method === "DELETE" && !action) return (await signin.removeApp(name), forget(name), Response.json(await removeApp(name)));
     return Response.json({ error: "No such thing." }, { status: 404 });
   } catch (e) {
@@ -54,7 +54,9 @@ async function answer(req) {
   // In production everything comes through the front door, so traffic limits can't be skipped.
   if (process.env.EDGE_SECRET && !viaEdge) return new Response("Not here.", { status: 404 });
   const headers = new Headers();
-  for (const [k, v] of Object.entries(req.headers)) if (!/^(x-runner-|x-edge-secret$|x-forwarded-host$|host$|connection$)/.test(k)) headers.set(k, Array.isArray(v) ? v.join(", ") : v);
+  for (const [k, v] of Object.entries(req.headers)) if (!/^(x-runner-|x-edge-secret$|x-forwarded-host$|x-client-ip$|host$|connection$)/.test(k)) headers.set(k, Array.isArray(v) ? v.join(", ") : v);
+  // The visitor's own address, as the front door saw it. Nobody else is believed about that.
+  if (viaEdge && req.headers["cf-connecting-ip"]) headers.set("x-client-ip", String(req.headers["cf-connecting-ip"]));
   const body = ["GET", "HEAD"].includes(req.method) ? undefined : Readable.toWeb(req);
   const request = new Request(`https://${host}${req.url}`, { method: req.method, headers, body, duplex: "half", redirect: "manual" });
   if (host === SIGNIN_HOST) return signin.handle(request);
