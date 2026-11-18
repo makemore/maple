@@ -13,6 +13,7 @@ create table if not exists service_calls (
   trial boolean not null default false, at timestamptz not null default now());
 create index if not exists service_calls_app on service_calls (app, at desc);
 alter table apps add column if not exists wake_at timestamptz;
+alter table apps add column if not exists origin text;
 create table if not exists app_offers (app text primary key, to_email text not null, from_email text not null, at timestamptz not null default now());
 create table if not exists files (
   id uuid primary key, app text not null, name text not null, type text not null, bytes integer not null,

@@ -1,0 +1,10 @@
+{
+  "name": "grove-edge",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "devDependencies": {
+    "cf": "^1.0.0-rc.1",
+    "wrangler": "^4.164.0"
+  },
+  "type": "module"
+}

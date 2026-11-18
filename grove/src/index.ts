@@ -127,7 +127,10 @@ async function putUp(a: any, branch: string, archive: Record<string, string>, ve
   await capCompute(a.neon_project_id, free ? FREE_CU_HOURS : 0).catch((e: Error) => console.error(`compute cap for ${a.slug} not set:`, e.message));
   const { address } = await upload({ key: process.env.NEON_API_KEY!, project: a.neon_project_id, branch }, archive, env);
   const url = publicUrl ?? address;
-  if (first && publicUrl && publicUrl !== address) await registerDomain(a.neon_project_id, branch, new URL(publicUrl).host);
+  // The app's own address at Neon, which Grove's front door on Cloudflare passes requests on to.
+  if (publicUrl) await pool.query("update apps set origin = $2 where slug = $1", [a.slug, address]);
+  // With Grove's front door on Cloudflare in front of every app (APPS_EDGE), the name is served there, not registered at Neon.
+  if (first && publicUrl && publicUrl !== address && !process.env.APPS_EDGE) await registerDomain(a.neon_project_id, branch, new URL(publicUrl).host);
   await setUpSignIn(a.neon_project_id, branch, url, { name: fromName(a.title ?? a.slug), email: `grove@${new URL(site).host}` });
   return url;
 }
@@ -880,6 +883,17 @@ function routes(app: import("hono").Hono<any>) {
       if (e instanceof ServiceError) return c.json({ error: e.message }, e.status as 400);
       throw e;
     }
+  });
+
+  // Grove's front door on Cloudflare (edge/worker.js) asks where the app for an address lives.
+  app.get("/edge/where", async (c) => {
+    const given = Buffer.from(c.req.header("x-edge-secret") ?? ""), want = Buffer.from(process.env.EDGE_SECRET ?? "");
+    if (want.length < 16 || given.length !== want.length || !timingSafeEqual(given, want)) return c.json({ error: "Not allowed." }, 401);
+    const host = (c.req.query("host") ?? "").toLowerCase();
+    if (!DOMAIN || !host.endsWith(`.${DOMAIN}`)) return c.json({ error: "No app here." }, 404);
+    await init();
+    const { rows: [a] } = await pool.query("select origin from apps where slug = $1 and origin is not null", [host.slice(0, -DOMAIN.length - 1)]);
+    return a ? c.json({ origin: a.origin }) : c.json({ error: "No app here." }, 404);
   });
 
   // Neon calls this once a minute (see neon.ts). It wakes the apps that have a background job due.

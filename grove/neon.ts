@@ -51,6 +51,10 @@ export default defineConfig({
         USAGE_WARN_TOKENS: { value: process.env.USAGE_WARN_TOKENS, required: false },
         // Set to anything to close sign-up again: only people on the list can then sign in.
         GROVE_INVITE_ONLY: { value: process.env.GROVE_INVITE_ONLY, required: false },
+        // Shared with Grove's front door on Cloudflare (edge/), which asks Grove where each app lives.
+        EDGE_SECRET: { value: process.env.EDGE_SECRET, required: false },
+        // Set once every app address goes through the front door: new apps then aren't registered as Neon custom domains.
+        APPS_EDGE: { value: process.env.APPS_EDGE, required: false },
         // Where the code is public. With it, the front page says "open source" and links there.
         GROVE_REPO_URL: { value: process.env.GROVE_REPO_URL, required: false },
         // Who runs this Grove, for its terms and privacy pages. Until both are set the pages are drafts and nobody is asked to agree.
