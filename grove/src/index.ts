@@ -15,16 +15,15 @@ import { GUARD_SCHEMA, MAX_OPEN_CHANGES, appNamed, blockedWhy, concerns, mayNoti
 import { HEAVY, METER_SCHEMA, carryOn, firstLimit, record, rounded, stopMessage, summary, today } from "./meter.ts";
 import { LEGAL_SCHEMA, TERMS_VERSION, agree, agreed, privacyPage, termsOn, termsPage } from "./legal.ts";
 import { sitePage, type PaidPlan } from "./site.ts";
-import { CHANGE, MAX_FILE, MAX_TOTAL, RESERVED, SLUG, applyWrites, diff, merge, tooBig, withKit } from "./code.ts";
+import { CHANGE, MAX_FILE, RESERVED, SLUG, applyWrites, diff, merge, tooBig, withKit } from "./code.ts";
 import { TEMPLATE } from "./template-files.ts";
 import { UPKEEP_SCHEMA, due, prune } from "./upkeep.ts";
 import * as runner from "./runner.ts";
 import { deleteObject, getObject, putObject } from "./storage.ts";
-import { crawl, fromExport, gather, hostOf, sensitiveHost, siteFiles, survey, withoutOldSite, type Limits } from "./importer.ts";
-import { dataFiles, importedIndex, TABLE, wire } from "./datafile.ts";
-import { OWNER_SCHEMA, bareHost, checkOwner, ownerCode, ownerHelp, owns } from "./owner.ts";
-import { FetchRefused, get as fetchPublic } from "./fetcher.ts";
+import { OWNER_SCHEMA, owns } from "./owner.ts";
 import { shell } from "./site.ts";
+import { importTools } from "./tools-import.ts";
+import { adminTools } from "./tools-admin.ts";
 import { watchErrors } from "./errors.ts";
 import { digest, stats } from "./stats.ts";
 import { AUTO_PAUSE_REPORTS, NEW_APPS, NEW_DAYS, SAFETY_SCHEMA, aiReview, blocking, dangerousUrls, disposable, distinctReports, nameProblem, outsideUrls, personEmailsPerDay, personEmailsToday, publicText, trustOf } from "./safety.ts";
@@ -318,65 +317,6 @@ function tools(server: McpServer, ctx: Ctx) {
   const pause = pauseApp;
 
   server.registerTool(
-    "pause_app",
-    {
-      title: "Pause an app",
-      description: "For Grove's maker: takes an app offline and shows a 'paused' page in its place (Neon takes a minute or two to switch, so the app can still answer for that long), for an app that is harming people or breaking the terms. Its code and information are kept, and its maker can still download them, but can't change or ship it. Give the reason in words its maker can read. Confirm first.",
-      inputSchema: { app: z.string(), why: z.string().min(5).max(500) },
-    },
-    async ({ app: slug, why }) => {
-      makerOnly();
-      const a = await appFor(ctx, slug);
-      await pause(a, why);
-      return json({ paused: slug, why, makers: a.makers, next: "The app can keep answering for a minute or two while Neon switches to the paused page. resume_app puts it back; leave a few minutes between pausing and resuming." });
-    },
-  );
-
-  server.registerTool(
-    "resume_app",
-    { title: "Put a paused app back", description: "For Grove's maker: puts a paused app back online as it was. Its previews come back the next time each change is saved.", inputSchema: { app: z.string() } },
-    async ({ app: slug }) => {
-      makerOnly();
-      const a = await appFor(ctx, slug);
-      if (!a.paused_at) return json({ app: slug, note: "It wasn't paused." });
-      await pool.query("update apps set paused_at = null, paused_why = null where slug = $1", [slug]);
-      await putUpAgain({ ...a, paused_at: null });
-      return json({ resumed: slug });
-    },
-  );
-
-  server.registerTool(
-    "block_person",
-    {
-      title: "Block a person",
-      description: "For Grove's maker: stops a person making or changing apps, and pauses every app they make. For someone using Grove to harm people. Give the reason in words they can read. Confirm first.",
-      inputSchema: { email: z.string().email(), why: z.string().min(5).max(500) },
-    },
-    async ({ email: who, why }) => {
-      makerOnly();
-      await init();
-      const address = who.toLowerCase();
-      if (address === person.email) throw new Error("That's you.");
-      await pool.query("insert into blocked (email, why) values ($1, $2) on conflict (email) do update set why = $2", [address, why]);
-      const { rows } = await pool.query("select * from apps where $1 = any(makers) and paused_at is null and status <> 'creating'", [address]);
-      for (const a of rows) await pause(a, why);
-      return json({ blocked: address, appsPaused: rows.map((a) => a.slug) });
-    },
-  );
-
-  server.registerTool(
-    "unblock_person",
-    { title: "Unblock a person", description: "For Grove's maker: lets a blocked person make and change apps again. Their paused apps stay paused until resume_app.", inputSchema: { email: z.string().email() } },
-    async ({ email: who }) => {
-      makerOnly();
-      await init();
-      const { rowCount } = await pool.query("delete from blocked where email = $1", [who.toLowerCase()]);
-      const { rows } = await pool.query("select slug from apps where $1 = any(makers) and paused_at is not null", [who.toLowerCase()]);
-      return json({ unblocked: Boolean(rowCount), stillPaused: rows.map((a) => a.slug) });
-    },
-  );
-
-  server.registerTool(
     "services",
     {
       title: "What Grove does for apps",
@@ -392,48 +332,6 @@ function tools(server: McpServer, ctx: Ctx) {
       const a = await appFor(ctx, slug);
       const { rows } = await pool.query("select service, action, mock as pretend, trial, result, at from service_calls where app = $1 order by id desc limit 30", [a.slug]);
       return json({ services: list, recent: rows });
-    },
-  );
-
-  server.registerTool(
-    "stats",
-    {
-      title: "How Grove is doing",
-      annotations: { readOnlyHint: true },
-      description: "For Grove's maker: people and apps, the funnel (joined, made an app, shipped a change of their own, came back after a week), paying accounts, and what needs a look (open reports, ships stopped by the checks, failed imports). From Grove's own tables; nothing is tracked on anyone's pages.",
-      inputSchema: { days: z.number().int().min(1).max(365).default(30) },
-    },
-    async ({ days }) => {
-      makerOnly();
-      await init();
-      return json(await stats(pool, days));
-    },
-  );
-
-  server.registerTool(
-    "list_reports",
-    {
-      title: "Reports about apps",
-      annotations: { readOnlyHint: true },
-      description: "For Grove's maker: open reports about apps, from the public and from Grove's own check of app code (reporter 'Grove check'), with who makes each app and whether it is paused. A report is something to look into, not proof.",
-      inputSchema: {},
-    },
-    async () => {
-      makerOnly();
-      await init();
-      const { rows } = await pool.query("select r.id, r.app, r.what, r.reporter, r.created_at, a.makers, a.url, a.paused_at is not null as paused from reports r left join apps a on a.slug = r.app where r.closed_at is null order by r.created_at desc limit 100");
-      return json({ reports: rows });
-    },
-  );
-
-  server.registerTool(
-    "close_report",
-    { title: "Close a report", description: "For Grove's maker: marks a report as dealt with, whatever was decided.", inputSchema: { id: z.number().int() } },
-    async ({ id }) => {
-      makerOnly();
-      await init();
-      const { rowCount } = await pool.query("update reports set closed_at = now() where id = $1 and closed_at is null", [id]);
-      return json({ closed: Boolean(rowCount) });
     },
   );
 
@@ -591,22 +489,6 @@ function tools(server: McpServer, ctx: Ctx) {
   );
 
   server.registerTool(
-    "list_waitlist",
-    {
-      title: "Who asked for an invite",
-      annotations: { readOnlyHint: true },
-      description: "For Grove's maker: people who asked for an invite on the website, newest first, with what they'd like to make. Let one in with add_person.",
-      inputSchema: {},
-    },
-    async () => {
-      if (!ctx.isMaker) throw new Error("Only Grove's maker can see the waiting list.");
-      await init();
-      const { rows } = await pool.query("select w.email, w.idea, w.created_at, (p.email is not null) as invited from waitlist w left join maple_people p on p.email = w.email order by w.created_at desc limit 200");
-      return json(rows);
-    },
-  );
-
-  server.registerTool(
     "list_files",
     {
       title: "List an app's files",
@@ -659,243 +541,9 @@ function tools(server: McpServer, ctx: Ctx) {
     },
   );
 
-  // --- Moving a site or a spreadsheet in ---
+  adminTools(server, { pool, ctx, init, appFor, makerOnly, pause, putUpAgain });
+  importTools(server, { pool, ctx, site, sign, appFor, init, mustAgree, notPaused, changeName, filesOf, preview });
 
-  /** The files of a change (or the shipped code), and the change itself if it exists. */
-  const startingPoint = async (a: any, change: string) => {
-    const { rows: [ch] } = await pool.query("select * from changes where app = $1 and name = $2", [a.slug, changeName(change)]);
-    return { ch, files: await filesOf(ch ? ch.version : a.live) };
-  };
-
-  /** Puts src/imported/index.ts together and connects it to src/app.ts. */
-  const wired = (files: Files) => {
-    const out: Files = { ...files, "src/imported/index.ts": importedIndex(files) };
-    const w = wire(out["src/app.ts"] ?? "", { home: Boolean(files["src/imported/site.ts"]) && /"path":"\/"/.test(Object.entries(files).filter(([p]) => /^src\/imported\/pages-/.test(p)).map(([, c]) => c).join("")) });
-    if (out["src/app.ts"]) out["src/app.ts"] = w.code;
-    return { files: out, wiring: { done: w.done, leftToDo: w.todo } };
-  };
-
-  /** Reads an upload made through upload_link: the newest one for "latest". */
-  const uploaded = async (a: any, id: string) => {
-    const { rows: [u] } = await pool.query(id === "latest" ? "select * from uploads where app = $1 order by at desc limit 1" : "select * from uploads where app = $1 and id::text = $2", id === "latest" ? [a.slug] : [a.slug, id]);
-    if (!u) throw new Error(`No upload ${id === "latest" ? "yet" : id} for ${a.slug}. upload_link gives a page to upload the file.`);
-    const res = await getObject(`imports/${a.slug}/${u.id}`);
-    if (!res) throw new Error("That upload has gone (uploads are kept for a week). Upload it again.");
-    return { name: u.name as string, text: await res.text() };
-  };
-
-  const ownerOfSource = async (a: any, host: string) => ctx.isMaker ? { email: person.email, how: "Grove's maker" } : owns(pool, a.makers, host);
-
-  server.registerTool(
-    "survey_site",
-    {
-      title: "Look at a website before moving it",
-      annotations: { readOnlyHint: true },
-      description:
-        "A quick look at a public website someone wants to move into Grove, without copying anything: what it was made with (WordPress, Wix, Squarespace...), its title, how many pages its sitemap lists, the forms on its front page (which would be rebuilt as app features), and whether the person has already shown the site is theirs. Use it to tell the person what an import will involve before import_site.",
-      inputSchema: { url: z.string().url().describe("The site's address, e.g. https://riverrowing.club") },
-    },
-    async ({ url }) => {
-      await init();
-      const host = hostOf(url);
-      const mine = await owns(pool, [person.email], host);
-      const why = sensitiveHost(host);
-      if (why && !mine && !ctx.isMaker) throw new Error(`Grove doesn't copy ${host}: it looks like ${why}. If it really is the person's own site, they can show that with verify_site first.`);
-      try {
-        const s = await survey(url);
-        return json({ ...s, yours: mine ? `yes (${mine.how})` : "not shown yet: the copy can be made and previewed, but verify_site is needed before it can go live", ...(!mine && ownerHelp(host, ownerCode(person.email, host, sign))) });
-      } catch (e) {
-        if (e instanceof FetchRefused) throw new Error(e.message);
-        throw new Error(`${url} couldn't be read: ${(e as Error).message}`);
-      }
-    },
-  );
-
-  server.registerTool(
-    "verify_site",
-    {
-      title: "Show a website is yours",
-      description:
-        "Checks that the person runs a website, so a copy of it can go live from Grove (an imported site can be previewed without this, but not shipped). Without a code on the site yet, it gives the person their code and the ways to put it there: a DNS TXT record, a tag in the front page's head, a grove-verify.txt file, or for WordPress an application password of an administrator or editor (checked once, never kept). Call it again once the code is in place.",
-      inputSchema: {
-        site: z.string().min(3).max(200).describe("The site's address or domain, e.g. riverrowing.club"),
-        wordpressUser: z.string().max(200).optional().describe("WordPress only: the account name the application password belongs to"),
-        wordpressAppPassword: z.string().max(200).optional().describe("WordPress only: an application password (Users, Profile, Application passwords)"),
-      },
-    },
-    async ({ site: typed, wordpressUser, wordpressAppPassword }) => {
-      await init();
-      await mustAgree();
-      const host = bareHost(typed.includes("://") ? new URL(typed).hostname : typed.split("/")[0]);
-      if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) throw new Error("Give the site's domain, e.g. riverrowing.club");
-      const r = await checkOwner(pool, person.email, host, sign, wordpressUser && wordpressAppPassword ? { user: wordpressUser, appPassword: wordpressAppPassword } : undefined);
-      if (r.verified) return json({ site: host, verified: true, how: r.how, next: "Imported copies of this site can now be shipped. The code can come off the site." });
-      return json({ site: host, verified: false, tried: r.tried, ...ownerHelp(host, r.code) });
-    },
-  );
-
-  server.registerTool(
-    "upload_link",
-    {
-      title: "A page for uploading an export file",
-      description:
-        "A link (good for an hour) to a page where the person uploads a file too big to paste into the chat, for import_site (a WordPress or Squarespace export: WordPress's Tools, Export; Squarespace's Settings, Import & export) or import_data (a CSV export from Airtable, Google Sheets, Notion, a CRM or a form tool). Then pass upload: \"latest\" to that tool. Uploads are kept for a week.",
-      inputSchema: { app: z.string() },
-    },
-    async ({ app: slug }) => {
-      const a = await appFor(ctx, slug);
-      await mustAgree();
-      if (!filesOn()) throw new Error("Uploads aren't switched on in this Grove. Paste a CSV into import_data instead, or import the live site by its address.");
-      const until = Date.now() + 3600_000;
-      return json({ uploadHere: `${site}/import/upload/${a.slug}?until=${until}&sig=${sign(`upload:${a.slug}:${until}`)}`, linkWorksFor: "one hour", accepts: "WordPress or Squarespace export (.xml), CSV or TSV, up to 30 MB", next: 'Once the person says it is uploaded, call import_site or import_data with upload: "latest".' });
-    },
-  );
-
-  server.registerTool(
-    "import_site",
-    {
-      title: "Copy a website into an app",
-      description:
-        "Copies a website the person runs into one of their apps, as a change with a trial copy: every page at the same path, its stylesheets, and its pictures (copied into Grove's file store). Either crawl the live site by url, or read a WordPress or Squarespace export file uploaded through upload_link (upload: \"latest\"), which gives tidy pages and posts but not the theme. Scripts, trackers and plugins are left behind; forms become placeholders listed in src/imported/forms.ts, to rebuild as real app features (a table and a route). WordPress posts also come as data in src/imported/posts-*.ts. It runs in the background: import_status says when it's done (usually a minute or two). The copy can be previewed straight away, but only goes live once verify_site shows the site is the person's. Only for sites the person owns or runs with the owner's say-so: ask first. A fresh import replaces the pages of an earlier one in the same change.",
-      inputSchema: {
-        app: z.string(),
-        url: z.string().url().optional().describe("The live site to copy, e.g. https://riverrowing.club"),
-        upload: z.string().optional().describe('An export file uploaded with upload_link: "latest", or its id'),
-        change: z.string().default("import-site"),
-        pages: z.number().int().min(1).max(200).default(60).describe("The most pages to copy"),
-      },
-    },
-    async ({ app: slug, url, upload, change, pages }) => {
-      const a = await appFor(ctx, slug);
-      await mustAgree();
-      notPaused(a);
-      if (!url === !upload) throw new Error("Give either url (the live site) or upload (an export file), not both.");
-      const { rows: [busy] } = await pool.query("select id from site_imports where app = $1 and status = 'running' and updated_at > now() - interval '10 minutes'", [a.slug]);
-      if (busy) throw new Error(`An import into ${a.slug} is already running. import_status says how it's going.`);
-      const exportFile = upload ? await uploaded(a, upload) : undefined;
-      const host = url ? hostOf(url) : undefined;
-      const mine = host && (await ownerOfSource(a, host));
-      const why = host && sensitiveHost(host);
-      if (why && !mine) throw new Error(`Grove doesn't copy ${host}: it looks like ${why}.`);
-      const paid = (await planFor(pool, a.makers[0])).plan === "paid";
-      if (!ctx.isMaker) await underBuildLimit(pool, person.email, paid);
-      const { rows: [job] } = await pool.query("insert into site_imports (app, change, source, kind, by_email) values ($1, $2, $3, $4, $5) returning id", [a.slug, changeName(change), host ?? exportFile!.name, url ? "site" : "export", person.email]);
-      const step = (p: object) => pool.query("update site_imports set progress = $2, updated_at = now() where id = $1", [job.id, JSON.stringify(p)]).then(() => undefined);
-      const work = async () => {
-        const { ch, files: before } = await startingPoint(a, change);
-        const base = withoutOldSite(before);
-        const used = Object.values(base).reduce((n, c) => n + c.length, 0);
-        const limits: Limits = { pages, images: paid ? 1500 : 400, imageBytes: paid ? 600_000_000 : 60_000_000, codeBudget: Math.max(0, Math.floor((MAX_TOTAL - used) * 0.85) - 100_000), seconds: 180 };
-        if (limits.codeBudget < 50_000) throw new Error(`${a.slug} has no room left for imported pages. Remove some files, or import into a new app.`);
-        const s = url ? await crawl(url, limits, { owner: Boolean(mine), progress: step }) : fromExport(exportFile!.text, limits);
-        if (!url && sensitiveHost(s.source) && !(await ownerOfSource(a, s.source))) throw new Error(`Grove doesn't copy ${s.source}.`);
-        if (!s.pages.length) throw new Error("No pages could be copied from that site.");
-        await step({ stage: "copying pictures and stylesheets", pages: s.pages.length });
-        await gather(s, { ...limits, seconds: 150 }, async (name, type, bytes) => {
-          if (!filesOn()) throw new Error("no file store");
-          return (await keepFile(pool, a.slug, { name, type, base64: Buffer.from(bytes).toString("base64"), public: true }, randomUUID(), { site, paid, trial: false, sign })).url;
-        }, step);
-        // Pages are measured as HTML, but kept as code: drop the last pages until it all fits.
-        let made = wired({ ...base, ...siteFiles(s) });
-        const size = (f: Files) => Object.values(f).reduce((n, c) => n + c.length, 0);
-        if (size(made.files) > MAX_TOTAL - 20_000 && s.posts.some((p) => p.content)) {
-          for (const p of s.posts) delete p.content;
-          made = wired({ ...base, ...siteFiles(s) });
-        }
-        while (size(made.files) > MAX_TOTAL - 20_000 && s.pages.length > 1) {
-          const drop = s.pages.splice(-Math.max(1, Math.ceil(s.pages.length / 10)));
-          s.skipped.push(...drop.map((p) => ({ url: p.path, why: "the app has no more room for pages" })));
-          made = wired({ ...base, ...siteFiles(s) });
-        }
-        const { files, wiring } = made;
-        await step({ stage: "checking the code and putting up a trial copy", pages: s.pages.length });
-        const out = await preview(a, change, ch, files, `Import ${s.pages.length} pages from ${s.source}`);
-        const owner = await ownerOfSource(a, s.source);
-        return {
-          ...out,
-          source: s.source, madeWith: s.platform, pages: s.pages.length, posts: s.posts.length, pictures: s.images,
-          forms: s.forms.map((f) => ({ page: f.path, fields: f.forms.map((x) => x.fields.map((y) => y.label ?? y.name)) })),
-          leftBehind: s.removed.map((r) => ({ scripts: "scripts and trackers", forms: "forms (rebuild them: see src/imported/forms.ts)", embeds: "embeds from sites other than the usual video and map ones", plugins: "plugins" })[r] ?? r),
-          skipped: s.skipped.slice(0, 25), skippedCount: s.skipped.length, wiring,
-          yours: owner ? `yes (${owner.how})` : "not shown yet",
-          next: [
-            "Show the person the preview. Pages are at their old paths; anything the kit uses (like /account) moved under /site.",
-            s.forms.length ? "Rebuild the forms listed in src/imported/forms.ts as real features, one small change at a time." : "",
-            s.posts.length ? "The posts are data in src/imported/posts-*.ts: offer to turn them into a table with a blog page the person can add to by asking." : "",
-            wiring.leftToDo.length ? `Finish connecting it in src/app.ts: ${wiring.leftToDo.join("; ")}.` : "",
-            owner ? "ship_change when the person says so." : "Before it can ship, the person shows the site is theirs with verify_site.",
-          ].filter(Boolean),
-        };
-      };
-      waitUntil(work().then(
-        (result) => pool.query("update site_imports set status = 'done', result = $2, updated_at = now() where id = $1", [job.id, JSON.stringify(result)]),
-        (e) => (console.error(`import ${job.id} failed:`, e), pool.query("update site_imports set status = 'failed', error = $2, updated_at = now() where id = $1", [job.id, String((e as Error)?.message ?? e).slice(0, 4000)])),
-      ));
-      return json({ import: job.id, status: "running", change, next: "It runs in the background, usually for a minute or two. Call import_status for progress and the preview address. Meanwhile tell the person what's happening." });
-    },
-  );
-
-  server.registerTool(
-    "import_status",
-    {
-      title: "How is the import going?",
-      annotations: { readOnlyHint: true },
-      description: "The latest imports into an app: running (with progress), done (with the preview, what was copied, what was left behind, the forms to rebuild and what to do next) or failed (with why).",
-      inputSchema: { app: z.string() },
-    },
-    async ({ app: slug }) => {
-      const a = await appFor(ctx, slug);
-      await pool.query("update site_imports set status = 'failed', error = 'It stopped without finishing. Try again, perhaps with fewer pages.' where app = $1 and status = 'running' and updated_at < now() - interval '10 minutes'", [a.slug]);
-      const { rows } = await pool.query("select id, change, source, kind, status, progress, result, error, started_at, updated_at from site_imports where app = $1 order by id desc limit 3", [a.slug]);
-      if (!rows.length) return json({ app: slug, imports: [], note: "Nothing has been imported into this app." });
-      return json({ app: slug, imports: rows.map((r) => (r.status === "running" ? { id: r.id, status: r.status, progress: r.progress, started: r.started_at, note: "Still going. Check again in half a minute." } : r.status === "failed" ? { id: r.id, status: r.status, source: r.source, why: r.error } : { id: r.id, status: r.status, ...r.result })) });
-    },
-  );
-
-  server.registerTool(
-    "import_data",
-    {
-      title: "Bring a spreadsheet into an app",
-      description:
-        "Turns rows from a spreadsheet into a table in an app, as a change with a trial copy: an export from Airtable, Google Sheets, Notion, Excel (saved as CSV), a CRM, a booking or form tool. Give the CSV itself (for small files), a link to it (a Google Sheet shared as 'anyone with the link' works), or a file uploaded with upload_link (upload: \"latest\"). Column types are worked out from the values; the rows load once when the app starts and are the app's to change after. Then add tools and pages that use the table. Check the table name with the person first.",
-      inputSchema: {
-        app: z.string(),
-        table: z.string().regex(TABLE).describe("Name of the new table, e.g. customers"),
-        csv: z.string().max(400_000).optional(),
-        url: z.string().url().optional(),
-        upload: z.string().optional(),
-        change: z.string().default("import-data"),
-      },
-    },
-    async ({ app: slug, table, csv, url, upload, change }) => {
-      const a = await appFor(ctx, slug);
-      await mustAgree();
-      notPaused(a);
-      if ([csv, url, upload].filter(Boolean).length !== 1) throw new Error("Give one of csv, url or upload.");
-      let text = csv;
-      if (url) {
-        const sheet = url.match(/docs\.google\.com\/spreadsheets\/d\/([\w-]+)/);
-        const gid = url.match(/[#&?]gid=(\d+)/)?.[1];
-        const r = await fetchPublic(sheet ? `https://docs.google.com/spreadsheets/d/${sheet[1]}/export?format=csv${gid ? `&gid=${gid}` : ""}` : url, { maxBytes: 5_000_000 }).catch((e) => { throw new Error(e instanceof FetchRefused ? e.message : `${url} couldn't be fetched.`); });
-        if (r.status !== 200) throw new Error(`${url} answered ${r.status}.${sheet ? " Share the sheet as 'anyone with the link can view'." : ""}`);
-        if (r.type === "text/html") throw new Error("That link gives a web page, not a CSV file.");
-        text = r.text();
-      }
-      if (upload) {
-        const u = await uploaded(a, upload);
-        if (/\.xlsx?$/i.test(u.name)) throw new Error("That's an Excel file. Save it as CSV (File, Save as, CSV) and upload that.");
-        text = u.text;
-      }
-      const { ch, files: before } = await startingPoint(a, change);
-      if (before[`src/imported/data-${table}-1.ts`]) throw new Error(`${table} was imported into this app already. Pick another table name, or remove src/imported/data-${table}-*.ts first.`);
-      if (new RegExp(`create table if not exists ${table}\\b`).test(Object.values(before).join("\n"))) throw new Error(`The app already has a table called ${table}. Pick another name.`);
-      const d = dataFiles(table, text!);
-      const { files, wiring } = wired({ ...before, ...d.files });
-      tooBig(files);
-      const out = await preview(a, change, ch, files, `Import ${d.rows} rows into ${table}`);
-      return json({ ...out, table, rows: d.rows, columns: d.columns, wiring, next: [`Check with the person that the columns look right (${d.columns.length} of them), then add tools and pages that use ${table}.`, ...(wiring.leftToDo.length ? [`Finish connecting it in src/app.ts: ${wiring.leftToDo.join("; ")}.`] : []), out.next] });
-    },
-  );
 
   server.registerTool(
     "update_kit",
