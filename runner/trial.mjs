@@ -34,7 +34,7 @@ async function provision(slug, maker, allowed = []) {
 }
 
 async function local() {
-  const env = { ...process.env, DATABASE_URL: "postgres://postgres:spike@localhost:54329/postgres", RUNNER_SECRET: randomBytes(32).toString("hex"), SIGNIN_URL: "https://signin.apps.test", APPS_DOMAIN: "apps.test", EDGE_SECRET: randomBytes(16).toString("hex"), PORT: "8791", POSTMARK_TOKEN: "" };
+  const env = { ...process.env, DATABASE_URL: "postgres://postgres:spike@localhost:54329/postgres", RUNNER_SECRET: randomBytes(32).toString("hex"), SIGNIN_URL: "https://signin.apps.test", APPS_DOMAIN: "apps.test", EDGE_SECRET: randomBytes(16).toString("hex"), PORT: "8791", POSTMARK_TOKEN: "", SANDBOX_URL: "http://localhost:8794", SANDBOX_TOKEN: randomBytes(32).toString("hex") };
   Object.assign(process.env, env);
   // A fresh start each time: the secret above is new, and old sign-in keys were locked with the old one.
   const pg = (await import("pg")).default;
@@ -43,11 +43,14 @@ async function local() {
   await wipe.query("drop schema if exists signin cascade; drop schema if exists runner cascade");
   await wipe.end();
   await provision("trial", "maker@example.com");
+  // The sandbox service gets none of the desk's secrets: only where the desk is and the token the desk calls it with.
+  const boxes = spawn("node", [(process.env.RUNNER_ENTRY ?? "server.mjs").replace("server.mjs", "boxes.mjs")], { env: { PATH: process.env.PATH, PORT: "8794", DESK_URL: "http://localhost:8791", SANDBOX_TOKEN: env.SANDBOX_TOKEN }, stdio: ["ignore", "inherit", "inherit"] });
   const server = spawn("node", [process.env.RUNNER_ENTRY ?? "server.mjs"], { env, stdio: ["ignore", "pipe", "inherit"] });
   let out = "";
   server.stdout.on("data", (d) => (out += d));
   try {
     for (let i = 0; i < 100 && !out.includes("listening"); i++) await new Promise((r) => setTimeout(r, 100));
+    for (let i = 0; i < 100; i++) { if (await fetch("http://localhost:8794/runner/health").then((r) => r.ok, () => false)) break; await new Promise((r) => setTimeout(r, 100)); }
     const jar = new Map();
     const at = async (host, path, init = {}) => {
       const headers = new Headers(init.headers);
@@ -62,7 +65,8 @@ async function local() {
     const APP = "trial.apps.test", SIGN = "signin.apps.test", RESOURCE = `https://${APP}/mcp`, REDIRECT = "https://assistant.example/callback";
 
     assert.equal((await at(APP, "/", { outside: true })).status, 404, "nothing answers except through the front door");
-    assert.equal((await at(APP, "/")).status, 200, "the app's page");
+    const page = await at(APP, "/");
+    assert.equal(page.status, 200, `the app's page: ${page.status} ${(await page.text()).slice(0, 300)}`);
     assert.equal((await at("nobody.apps.test", "/")).status, 404);
     const unauth = await at(APP, "/mcp", { method: "POST" });
     assert.equal(unauth.status, 401);
@@ -108,6 +112,7 @@ async function local() {
     console.log("\nall good");
   } finally {
     server.kill("SIGTERM");
+    boxes.kill("SIGTERM");
   }
 }
 

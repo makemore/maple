@@ -7,8 +7,9 @@ import { cpSync, mkdirSync, rmSync } from "node:fs";
 rmSync("dist", { recursive: true, force: true });
 mkdirSync("dist");
 await build({
-  entryPoints: ["server.mjs"],
-  outfile: "dist/server.mjs",
+  entryPoints: ["server.mjs", "boxes.mjs"],
+  outdir: "dist",
+  outExtension: { ".js": ".mjs" },
   bundle: true, platform: "node", format: "esm", target: "node22", minify: false, legalComments: "none",
   external: ["miniflare", "esbuild", "pg-native", "cloudflare:*"],
   banner: { js: "import{createRequire as __r}from'node:module';import{fileURLToPath as __f}from'node:url';const require=__r(import.meta.url);const __filename=__f(import.meta.url);const __dirname=__f(new URL('.',import.meta.url));" },
@@ -16,4 +17,4 @@ await build({
 });
 cpSync("dispatcher.js", "dist/dispatcher.js");
 cpSync("shims", "dist/shims", { recursive: true });
-console.log("packed dist/server.mjs");
+console.log("packed dist/server.mjs and dist/boxes.mjs");

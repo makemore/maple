@@ -6,7 +6,7 @@ import { Readable } from "node:stream";
 import { bundleForRunner } from "./build.mjs";
 import { admin, SCHEMA, copyApp, dumpApp, pauseApp, putApp, removeApp, sqlAs } from "./db.mjs";
 import * as signin from "./signin.mjs";
-import { forget, ready, run, stop } from "./sandbox.mjs";
+import { forget, internal, nudge, run } from "./sandbox.mjs";
 import { watchErrors } from "./errors.mjs";
 
 watchErrors();
@@ -52,7 +52,9 @@ async function adminCall(req, path) {
 
 async function answer(req) {
   const { host, viaEdge } = hostOf(req);
-  if (req.url === "/runner/health") return Response.json({ ok: true });
+  if (req.url === "/runner/health") return (nudge(), Response.json({ ok: true, role: "desk" }));
+  // What the sandbox service asks for on an app's behalf. Its pass says which app, and is checked here.
+  if (req.url.startsWith("/runner/internal/")) return internal(req.url.slice("/runner/internal".length).split("?")[0], String(req.headers["x-runner-pass"] ?? ""), req.method === "POST" ? await new Response(Readable.toWeb(req)).text() : undefined);
   if (req.url.startsWith("/runner/admin/")) return adminCall(req, req.url.slice("/runner/admin".length).split("?")[0]);
   // In production everything comes through the front door, so traffic limits can't be skipped.
   if (process.env.EDGE_SECRET && !viaEdge) return new Response("Not here.", { status: 404 });
@@ -73,13 +75,12 @@ const began = performance.now();
 const took = (what) => (v) => (console.log(`start-up: ${what} ready after ${Math.round(performance.now() - began)}ms (process up ${Math.round(process.uptime() * 1000)}ms)`), v);
 const prepared = admin.query(SCHEMA).then(took("database"));
 const signInReady = prepared.then(() => signin.ready()).then(took("sign-in"));
-ready.then(took("sandbox"));
 prepared.catch((e) => console.error("start-up failed:", e));
 signInReady.catch((e) => console.error("sign-in start-up failed:", e));
 
 const server = createServer(async (req, res) => {
   try {
-    if (req.url !== "/runner/health") await (hostOf(req).host === SIGNIN_HOST || req.url.startsWith("/runner/admin/") ? signInReady : prepared);
+    if (req.url !== "/runner/health") await (hostOf(req).host === SIGNIN_HOST || req.url.startsWith("/runner/admin/") || req.url.startsWith("/runner/internal/jwks") ? signInReady : prepared);
     const out = await answer(req);
     const headers = {};
     out.headers.forEach((v, k) => { if (k !== "set-cookie") headers[k] = v; });
@@ -95,7 +96,5 @@ const server = createServer(async (req, res) => {
   }
 });
 const port = Number(process.env.PORT ?? 8080);
-// Only take requests once the sandbox is up, so a new copy of the runner is never sent visitors it can't serve yet.
-await ready;
 server.listen(port, () => console.log(`runner listening on ${port} after ${Math.round(performance.now() - began)}ms (process up ${Math.round(process.uptime() * 1000)}ms)`));
-for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => server.close(() => stop().finally(() => process.exit(0))));
+for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => server.close(() => process.exit(0)));
