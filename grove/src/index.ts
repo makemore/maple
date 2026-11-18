@@ -15,6 +15,7 @@ import { GUARD_SCHEMA, MAX_OPEN_CHANGES, appNamed, blockedWhy, concerns, mayNoti
 import { HEAVY, METER_SCHEMA, carryOn, firstLimit, record, rounded, stopMessage, summary, today } from "./meter.ts";
 import { LEGAL_SCHEMA, TERMS_VERSION, agree, agreed, privacyPage, termsOn, termsPage } from "./legal.ts";
 import { sitePage, type PaidPlan } from "./site.ts";
+import { OG_PNG, TOUCH_ICON_PNG } from "./images.ts";
 import { CHANGE, MAX_FILE, RESERVED, SLUG, applyWrites, diff, merge, tooBig, withKit } from "./code.ts";
 import { TEMPLATE } from "./template-files.ts";
 import { UPKEEP_SCHEMA, due, prune } from "./upkeep.ts";
@@ -860,6 +861,21 @@ function routes(app: import("hono").Hono<any>) {
   // Outreach previews: private copies of a business's site, made by Grove's maker (tools-prospects.ts).
   prospectRoutes(app, { pool: () => pool, site: () => site });
   // The website's invite form. Open to anyone, so it only ever stores an email and a short note, and stops at 200 a day.
+  // For search engines and link previews: the share picture, the home-screen icon, and what to index.
+  const image = (png: Buffer) => () => new Response(new Uint8Array(png), { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" } });
+  app.get("/og.png", image(OG_PNG));
+  app.get("/apple-touch-icon.png", image(TOUCH_ICON_PNG));
+  app.get("/robots.txt", (c) => {
+    const keepOut = ["/preview/", "/export/", "/import/", "/payments/", "/pretend/", "/files/", "/services/", "/edge/", "/api/", "/auth/", "/account", "/mcp"];
+    return c.text(`User-agent: *\n${keepOut.map((p) => `Disallow: ${p}`).join("\n")}\n\nSitemap: ${site}/sitemap.xml\n`, 200, { "Cache-Control": "public, max-age=3600" });
+  });
+  app.get("/sitemap.xml", (c) =>
+    c.body(
+      `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${["/", "/terms", "/privacy"].map((p) => `  <url><loc>${site}${p}</loc></url>`).join("\n")}\n</urlset>\n`,
+      200,
+      { "Content-Type": "application/xml", "Cache-Control": "public, max-age=3600" },
+    ),
+  );
   app.get("/terms", (c) => c.html(termsPage()));
   app.get("/privacy", (c) => c.html(privacyPage()));
 

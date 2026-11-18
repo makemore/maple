@@ -172,3 +172,16 @@ test("kit pages: an app's name can't inject HTML", () => {
     assert.doesNotMatch(html, /<script>alert\(1\)<\/script>|<img src=x/);
   }
 });
+
+test("front page: search and share tags point at Grove's own address and picture", () => {
+  const html = sitePage(MCP, 5, { price: "$10 a month", apps: 10, prices: { usd: "$10 a month", gbp: "£10 a month" } });
+  const origin = new URL(MCP).origin;
+  assert.match(html, new RegExp(`<link rel="canonical" href="${origin}/">`));
+  assert.match(html, new RegExp(`<meta property="og:image" content="${origin}/og.png">`));
+  assert.match(html, /<meta name="twitter:card" content="summary_large_image">/);
+  const description = html.match(/<meta name="description" content="([^"]+)">/)![1];
+  assert.ok(description.length >= 70 && description.length <= 230, "a description search engines show in full");
+  const ld = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)![1]);
+  const product = ld["@graph"].find((x: any) => x["@type"] === "SoftwareApplication");
+  assert.deepEqual(product.offers.map((o: any) => [o.name, o.price, o.priceCurrency]), [["Free", "0", "USD"], ["Plus", "10", "USD"]]);
+});

@@ -313,6 +313,55 @@ const says = (step: number, who: "you" | "app", text: string) =>
 const table = (step: number, name: string, columns: string[], read = false) =>
   `<li data-step="${step}"${read ? ' class="read"' : ""}><strong>${name}</strong>${columns.map((c) => (c.includes("→") ? `<em>${c}</em>` : c)).join("<br>")}</li>`;
 
+const SEO_TITLE = "Grove: make websites and apps by asking your AI assistant";
+const SEO_DESCRIPTION = "Make a real website or app, for yourself or for the businesses you work with, by asking Claude, ChatGPT or any AI assistant. Its own database, pages and sign-in. Free to start, and the code is yours.";
+const SHARE_DESCRIPTION = "Websites and apps made by asking Claude, ChatGPT or any AI assistant, for you or for the businesses you make them for. Free to start, real code you own.";
+const SHARE_ALT = "Grove: websites and apps, made by asking. A chat where someone asks for a booking site for a barber's, and their assistant replies that it is live.";
+
+/** What search engines and link previews read: title, description, the share picture and a structured summary. */
+const seoHead = (origin: string, free: number, paid?: PaidPlan) => {
+  const home = origin + "/", image = origin + "/og.png";
+  const ld = {
+    "@context": "https://schema.org",
+    "@graph": [
+      { "@type": "Organization", "@id": home + "#org", name: "Grove", url: home, logo: origin + "/apple-touch-icon.png" },
+      { "@type": "WebSite", "@id": home + "#site", name: "Grove", url: home, publisher: { "@id": home + "#org" } },
+      {
+        "@type": "SoftwareApplication", name: "Grove", url: home, image, description: SEO_DESCRIPTION,
+        applicationCategory: "DeveloperApplication", operatingSystem: "Web", publisher: { "@id": home + "#org" },
+        offers: [
+          { "@type": "Offer", name: "Free", price: "0", priceCurrency: "USD", description: `${free} websites and apps` },
+          ...(paid?.prices?.usd ? [{ "@type": "Offer", name: "Plus", price: paid.prices.usd.replace(/[^0-9.]/g, ""), priceCurrency: "USD", description: `Up to ${paid.apps} websites and apps, monthly` }] : []),
+        ],
+      },
+    ],
+  };
+  return `<title>${SEO_TITLE}</title>
+<meta name="description" content="${esc(SEO_DESCRIPTION)}">
+<link rel="canonical" href="${home}">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Grove">
+<meta property="og:locale" content="en_GB">
+<meta property="og:url" content="${home}">
+<meta property="og:title" content="Grove: websites and apps, made by asking">
+<meta property="og:description" content="${esc(SHARE_DESCRIPTION)}">
+<meta property="og:image" content="${image}">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="${esc(SHARE_ALT)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Grove: websites and apps, made by asking">
+<meta name="twitter:description" content="${esc(SHARE_DESCRIPTION)}">
+<meta name="twitter:image" content="${image}">
+<meta name="twitter:image:alt" content="${esc(SHARE_ALT)}">
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#1f5135">
+<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, "\\u003c")}</script>`;
+};
+
 /**
  * The front page. connect is Grove's address for assistants, free is how many apps the free plan allows,
  * paid is the paid plan when there is one, and repo is where the code is public (the page only says
@@ -323,13 +372,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Grove: websites and apps you make by asking</title>
-<meta name="description" content="Your website and the tools behind it, made and run from your AI assistant. Describe what you need or move the site you already pay for. Its own database, pages and sign-in, real code you can take away.">
-<meta property="og:title" content="Grove: websites and apps you make by asking">
-<meta property="og:description" content="Your website and the tools behind it, made and run from your AI assistant. Describe it, or move the site you already pay for.">
-<meta property="og:type" content="website">
-<link rel="icon" type="image/svg+xml" href="/icon.svg">
-<meta name="theme-color" content="#1f5135">
+${seoHead(new URL(connect).origin, free, paid)}
 <style>${CSS}</style>
 </head>
 <body>
