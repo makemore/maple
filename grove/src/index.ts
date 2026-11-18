@@ -25,6 +25,8 @@ import { dataFiles, importedIndex, TABLE, wire } from "./datafile.ts";
 import { OWNER_SCHEMA, bareHost, checkOwner, ownerCode, ownerHelp, owns } from "./owner.ts";
 import { FetchRefused, get as fetchPublic } from "./fetcher.ts";
 import { shell } from "./site.ts";
+import { watchErrors } from "./errors.ts";
+import { digest, stats } from "./stats.ts";
 import { AUTO_PAUSE_REPORTS, NEW_APPS, NEW_DAYS, SAFETY_SCHEMA, aiReview, blocking, dangerousUrls, disposable, distinctReports, nameProblem, outsideUrls, personEmailsPerDay, personEmailsToday, publicText, trustOf } from "./safety.ts";
 import { SERVICES, SERVICES_SCHEMA, ServiceError, appEmailsPerDay, checkEmail, footer, fromName, known, pretend, pretendCheckout, pretendPayPage, pretendStatus, removeFile, removeFilesOf, sendMail, wakeAt, wakeDue, whoGets, filesOn, keepFile, linkFile, linkGood, fileKey } from "./services.ts";
 
@@ -87,6 +89,9 @@ function paidPlan() {
 paidPlan();
 
 const { app, pool, init, email, site } = createMapleApp({ manifest: { ...(manifest as Manifest), auth: { ...manifest.auth, open: manifest.auth.open && !process.env.GROVE_INVITE_ONLY } }, slug: "grove", schema, guide, tools, routes, home: ({ mcpUrl }) => sitePage(mcpUrl, FREE(), paidPlan(), process.env.GROVE_REPO_URL, FREE_MAX()) });
+
+// Failures go to Sentry as well as the log, when SENTRY_DSN is set.
+watchErrors("grove", waitUntil);
 
 async function appFor(ctx: Ctx, slug: string) {
   await init();
@@ -387,6 +392,21 @@ function tools(server: McpServer, ctx: Ctx) {
       const a = await appFor(ctx, slug);
       const { rows } = await pool.query("select service, action, mock as pretend, trial, result, at from service_calls where app = $1 order by id desc limit 30", [a.slug]);
       return json({ services: list, recent: rows });
+    },
+  );
+
+  server.registerTool(
+    "stats",
+    {
+      title: "How Grove is doing",
+      annotations: { readOnlyHint: true },
+      description: "For Grove's maker: people and apps, the funnel (joined, made an app, shipped a change of their own, came back after a week), paying accounts, and what needs a look (open reports, ships stopped by the checks, failed imports). From Grove's own tables; nothing is tracked on anyone's pages.",
+      inputSchema: { days: z.number().int().min(1).max(365).default(30) },
+    },
+    async ({ days }) => {
+      makerOnly();
+      await init();
+      return json(await stats(pool, days));
     },
   );
 
@@ -1363,6 +1383,12 @@ function routes(app: import("hono").Hono<any>) {
     if (runner.runnerOn()) waitUntil(fetch(`${process.env.RUNNER_URL!.replace(/\/$/, "")}/runner/health`, { signal: AbortSignal.timeout(20_000) }).catch(() => undefined));
     const woken = await wakeDue(pool, appSecret);
     if (await due(pool, "prune")) waitUntil(prune(pool).then((r) => console.log("pruned", JSON.stringify(r)), (e) => console.error("prune failed:", e)));
+    // Once a day, a summary for Grove's makers: the funnel and anything that needs a look.
+    if (await due(pool, "digest", "1 day"))
+      waitUntil((async () => {
+        const { rows } = await pool.query("select email from maple_people where role = 'maker'");
+        if (rows.length) await email(rows.map((r) => r.email), `Grove today: ${new Date().toISOString().slice(0, 10)}`, digest(await stats(pool, 30), site));
+      })().catch((e) => console.error("daily summary failed:", e)));
     // New accounts' limits lift on their own: put their apps up again once the account counts as trusted.
     if (await due(pool, "lift-limits", "1 hour"))
       waitUntil((async () => {

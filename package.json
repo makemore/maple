@@ -8,13 +8,15 @@
     "test": "npm run bundle && tsc --noEmit && node --test tests/",
     "test:live": "MAPLE_TEST_TOKEN=$(grep ^MAPLE_TEST_TOKEN .env.grove | cut -d= -f2) node --env-file=.env.grove scripts/e2e.ts",
     "check": "npm test",
-    "deploy:grove": "test -f .env.grove && npm run bundle && (cd grove && neon deploy --env ../.env.grove --project-id snowy-hat-06906890 --branch main --update-existing); rm -f grove/.gitignore grove/.env.local",
+    "deploy:grove": "node scripts/secrets.ts pull && npm run bundle && (cd grove && neon deploy --env ../.env.grove --project-id snowy-hat-06906890 --branch main --update-existing); rm -f grove/.gitignore grove/.env.local",
     "test:live:services": "MAPLE_TEST_TOKEN=$(grep ^MAPLE_TEST_TOKEN .env.grove | cut -d= -f2) node --env-file=.env.grove scripts/e2e-services.ts",
-    "deploy:edge": "test -f .env.grove && (set -a; . ./.env.grove; set +a; printf 'EDGE_SECRET=%s\\n' \"$EDGE_SECRET\" > edge/.env.secrets; (cd edge && cf deploy --secrets-file .env.secrets); rm -f edge/.env.secrets)",
-    "deploy:runner": "test -f .env.grove && (cd runner && gcloud run deploy grove-runner --project makewithgrove --region us-east5 --source . --quiet)",
+    "deploy:edge": "node scripts/secrets.ts pull && (set -a; . ./.env.grove; set +a; printf 'EDGE_SECRET=%s\\n' \"$EDGE_SECRET\" > edge/.env.secrets; (cd edge && cf deploy --secrets-file .env.secrets); rm -f edge/.env.secrets)",
+    "deploy:runner": "node scripts/secrets.ts pull && IMG=us-east5-docker.pkg.dev/makewithgrove/cloud-run-source-deploy/grove-runner:$(date +%Y%m%d-%H%M%S) && (cd runner && gcloud builds submit --project makewithgrove --tag $IMG --quiet) && gcloud run deploy grove-sandbox --project makewithgrove --region us-east5 --image $IMG --command node --args dist/boxes.mjs --quiet && gcloud run deploy grove-runner --project makewithgrove --region us-east5 --image $IMG --quiet",
     "test:runner": "docker rm -f grove-spike-pg >/dev/null 2>&1; docker run -d --name grove-spike-pg -e POSTGRES_PASSWORD=spike -p 54329:5432 postgres:17 >/dev/null && sleep 6 && (cd runner && node pack.mjs && RUNNER_ENTRY=dist/server.mjs node --experimental-strip-types trial.mjs local); docker rm -f grove-spike-pg >/dev/null",
     "test:live:runner": "(set -a; . ./.env.grove; set +a; cd runner && node --experimental-strip-types trial.mjs live runnertrial $APPS_DOMAIN)",
-    "test:live:move": "MAPLE_TEST_TOKEN=$(grep ^MAPLE_TEST_TOKEN .env.grove | cut -d= -f2) node --env-file=.env.grove scripts/e2e-move.ts"
+    "test:live:move": "MAPLE_TEST_TOKEN=$(grep ^MAPLE_TEST_TOKEN .env.grove | cut -d= -f2) node --env-file=.env.grove scripts/e2e-move.ts",
+    "secrets:pull": "node scripts/secrets.ts pull",
+    "secrets:push": "node scripts/secrets.ts push"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.10.0",

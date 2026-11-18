@@ -61,6 +61,19 @@ function tooMany(request, host, env) {
   return h.n > limit;
 }
 
+/** Sends a failure to Sentry when SENTRY_DSN is set. Never throws. */
+function report(env, ctx, error, host) {
+  if (!env.SENTRY_DSN) return;
+  try {
+    const u = new URL(env.SENTRY_DSN), project = u.pathname.replace(/^\/+|\/+$/g, ""), id = crypto.randomUUID().replace(/-/g, "");
+    const ev = { event_id: id, timestamp: Date.now() / 1000, platform: "javascript", level: "error", server_name: "grove-edge", environment: "production", tags: { host },
+      exception: { values: [{ type: error?.name ?? "Error", value: String(error?.message ?? error).slice(0, 2000) }] } };
+    ctx.waitUntil(fetch(`${u.protocol}//${u.host}/api/${project}/envelope/`, { method: "POST",
+      headers: { "content-type": "application/x-sentry-envelope", "x-sentry-auth": `Sentry sentry_version=7, sentry_key=${u.username}, sentry_client=grove-edge/1.0` },
+      body: `${JSON.stringify({ event_id: id })}\n${JSON.stringify({ type: "event" })}\n${JSON.stringify(ev)}\n` }).catch(() => {}));
+  } catch {}
+}
+
 export default {
   async fetch(request, env, ctx) {
     const incoming = new URL(request.url);
@@ -72,7 +85,8 @@ export default {
     let to;
     try {
       to = await where(incoming.hostname, env, ctx);
-    } catch {
+    } catch (e) {
+      report(env, ctx, e, incoming.hostname);
       return new Response("This app can't be reached right now. Please try again in a minute.", { status: 502 });
     }
     if (!to) return new Response("There is no app at this address.", { status: 404 });

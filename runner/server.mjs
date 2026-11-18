@@ -7,6 +7,9 @@ import { bundleForRunner } from "./build.mjs";
 import { admin, SCHEMA, copyApp, dumpApp, pauseApp, putApp, removeApp, sqlAs } from "./db.mjs";
 import * as signin from "./signin.mjs";
 import { forget, ready, run, stop } from "./sandbox.mjs";
+import { watchErrors } from "./errors.mjs";
+
+watchErrors();
 
 const DOMAIN = process.env.APPS_DOMAIN;
 const SIGNIN_HOST = new URL(process.env.SIGNIN_URL).host;

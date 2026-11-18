@@ -20,6 +20,8 @@ export default defineConfig({
       RUNNER_HOSTS: bindings.text(process.env.RUNNER_HOSTS ?? ""),
       EDGE_SECRET: bindings.secret(),
       // Requests one visitor may make to one app in a minute, before getting "too many requests".
+      // Where the front door's own failures go (a Sentry DSN). Empty: nowhere.
+      SENTRY_DSN: bindings.text(process.env.SENTRY_DSN ?? ""),
       LIMIT_PER_MINUTE: bindings.text(process.env.EDGE_LIMIT_PER_MINUTE ?? "600"),
     },
   },
