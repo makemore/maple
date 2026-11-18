@@ -25,6 +25,7 @@ import { dataFiles, importedIndex, TABLE, wire } from "./datafile.ts";
 import { OWNER_SCHEMA, bareHost, checkOwner, ownerCode, ownerHelp, owns } from "./owner.ts";
 import { FetchRefused, get as fetchPublic } from "./fetcher.ts";
 import { shell } from "./site.ts";
+import { AUTO_PAUSE_REPORTS, NEW_APPS, NEW_DAYS, SAFETY_SCHEMA, aiReview, blocking, dangerousUrls, disposable, distinctReports, nameProblem, outsideUrls, personEmailsPerDay, personEmailsToday, publicText, trustOf } from "./safety.ts";
 import { SERVICES, SERVICES_SCHEMA, ServiceError, appEmailsPerDay, checkEmail, footer, fromName, known, pretend, pretendCheckout, pretendPayPage, pretendStatus, removeFile, removeFilesOf, sendMail, wakeAt, wakeDue, whoGets, filesOn, keepFile, linkFile, linkGood, fileKey } from "./services.ts";
 
 // An app's code lives here as whole versions: every saved change and every shipped state is one row.
@@ -44,7 +45,7 @@ create table if not exists changes (
   app text not null, name text not null, version bigint not null, base bigint not null, branch_id text, url text,
   updated_at timestamptz not null default now(), primary key (app, name));
 create table if not exists waitlist (
-  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}${GUARD_SCHEMA}${METER_SCHEMA}${SERVICES_SCHEMA}${UPKEEP_SCHEMA}${OWNER_SCHEMA}`;
+  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}${GUARD_SCHEMA}${METER_SCHEMA}${SERVICES_SCHEMA}${UPKEEP_SCHEMA}${OWNER_SCHEMA}${SAFETY_SCHEMA}`;
 
 const DOMAIN = process.env.APPS_DOMAIN;
 
@@ -137,7 +138,10 @@ const FREE_CU_HOURS = Number(process.env.FREE_APP_CU_HOURS ?? 20), FREE_JOB_HOUR
 async function putUp(a: any, branch: string, archive: Record<string, string>, version: string, publicUrl?: string, first = false) {
   // Free apps carry a line about Grove at the foot of their pages; the paid plan takes it off.
   const free = (await planFor(pool, a.makers[0])).plan === "free";
-  const env = { GROVE_URL: site, GROVE_APP_SECRET: appSecret(a.slug), MAPLE_COMMIT: String(version), ...(publicUrl ? { PUBLIC_URL: publicUrl } : { GROVE_TRIAL: "1" }), ...(free && { GROVE_BADGE: a.slug, MAPLE_MIN_JOB_HOURS: String(FREE_JOB_HOURS) }) };
+  // Apps from brand-new accounts keep out of search engines and can't link elsewhere, until the account has been around a while.
+  const limited = !(await trustOf(pool, a.makers[0], { paid: !free })).trusted;
+  await pool.query("update apps set limited = $2 where slug = $1", [a.slug, limited]).catch(() => undefined);
+  const env = { GROVE_URL: site, ...(limited && { GROVE_LIMITED: "1" }), GROVE_APP_SECRET: appSecret(a.slug), MAPLE_COMMIT: String(version), ...(publicUrl ? { PUBLIC_URL: publicUrl } : { GROVE_TRIAL: "1" }), ...(free && { GROVE_BADGE: a.slug, MAPLE_MIN_JOB_HOURS: String(FREE_JOB_HOURS) }) };
   // On Grove's runner the "branch" is the name the code runs under: the app's own, or a trial copy's.
   if (onRunner(a)) {
     const name = branch === "live" ? a.slug : branch;
@@ -174,6 +178,15 @@ async function putUpAgain(a: any) {
 const notPaused = (a: any) => {
   if (a.paused_at) throw new Error(`${a.slug} has been paused by Grove${a.paused_why ? `: ${a.paused_why}` : ""}. It can't be changed or shipped until that is sorted out${process.env.GROVE_CONTACT_EMAIL ? `: write to ${process.env.GROVE_CONTACT_EMAIL}` : ""}. export_app still gives its code and information.`);
 };
+
+/** Swaps an app (and its previews) for the paused page. */
+async function pauseApp(a: any, why: string) {
+  await pool.query("update apps set paused_at = now(), paused_why = $2 where slug = $1", [a.slug, why]);
+  const { rows } = await pool.query("select branch_id from changes where app = $1 and branch_id is not null", [a.slug]);
+  for (const branch of [a.branch_id, ...rows.map((r) => r.branch_id)])
+    if (onRunner(a)) await runner.pause(branch === "live" ? a.slug : branch, true);
+    else await upload({ key: process.env.NEON_API_KEY!, project: a.neon_project_id, branch }, pausedArchive(a.title, site), { MAPLE_COMMIT: "paused" });
+}
 
 const SWITCH = "Neon can take a minute or two to switch to a new version";
 
@@ -237,6 +250,7 @@ function tools(server: McpServer, ctx: Ctx) {
 
   /** Making, changing and paying need the person's agreement to the current terms, and an account in good standing. */
   const mustAgree = async () => {
+    if (disposable(person.email) && !ctx.isMaker) throw new Error("Grove can't make apps for throwaway email addresses. Sign in with an address you keep.");
     const why = await blockedWhy(pool, person.email);
     if (why) throw new Error(`This account can't make or change apps: ${why}${process.env.GROVE_CONTACT_EMAIL ? ` To ask about it, write to ${process.env.GROVE_CONTACT_EMAIL}.` : ""}`);
     if (!(await agreed(pool, person.email)))
@@ -267,18 +281,36 @@ function tools(server: McpServer, ctx: Ctx) {
     return { change, version, status: "saved", preview: url, previewConnect: url + "/mcp", next: `${SWITCH}; change_status says when the preview shows this version. Show the person the preview, and ship_change when they say so.` };
   };
 
+  /**
+   * The checks a change passes before it goes live: no clear signs of a scam in the code, no links to sites
+   * Google lists as dangerous, and (when switched on) an AI read of any public pages that changed.
+   * Anything that stops a ship is also reported to Grove's maker.
+   */
+  const safeToShip = async (a: any, files: Files, live: Files, version: string | number) => {
+    const stop = async (what: string, tell: string) => {
+      await report(pool, a.slug, what, "Grove check");
+      throw new Error(`${tell} Nothing was shipped. If this is a mistake, the person can write to ${process.env.GROVE_CONTACT_EMAIL ?? "Grove's maker"}.`);
+    };
+    const clear = blocking(files);
+    if (clear.length) await stop(`Ship refused: ${clear.join(" ")}`, `This can't go live: ${clear.join(" ")} Remove it and ship again.`);
+    const own = [new URL(site).hostname, ...(DOMAIN ? [DOMAIN] : [])];
+    const fresh = outsideUrls(files, own).filter((u) => !outsideUrls(live, own).includes(u));
+    const bad = await dangerousUrls(fresh).catch((e) => (console.error("safe browsing:", e), []));
+    if (bad.length) await stop(`Ship refused: links Google lists as dangerous: ${bad.join(", ")}`, `This links to sites Google lists as dangerous: ${bad.slice(0, 5).join(", ")}. Take those links out and ship again.`);
+    const text = publicText(files);
+    if (text !== publicText(live)) {
+      const r = await aiReview(text).catch((e) => (console.error("ai review:", e), undefined));
+      if (r) await pool.query("insert into reviews (app, version, verdict, why) values ($1, $2, $3, $4)", [a.slug, version, r.verdict, r.why]);
+      if (r?.verdict === "hold") await stop(`Ship held by the AI review: ${r.why}`, `Grove's automatic review held this back: ${r.why} A person will look at it.`);
+    }
+  };
+
   const makerOnly = () => {
     if (!ctx.isMaker) throw new Error("Only Grove's maker can do this.");
   };
 
   /** Swaps an app (and its previews) for the paused page, or puts it back. */
-  const pause = async (a: any, why: string) => {
-    await pool.query("update apps set paused_at = now(), paused_why = $2 where slug = $1", [a.slug, why]);
-    const { rows } = await pool.query("select branch_id from changes where app = $1 and branch_id is not null", [a.slug]);
-    for (const branch of [a.branch_id, ...rows.map((r) => r.branch_id)])
-      if (onRunner(a)) await runner.pause(branch === "live" ? a.slug : branch, true);
-      else await upload({ key: process.env.NEON_API_KEY!, project: a.neon_project_id, branch }, pausedArchive(a.title, site), { MAPLE_COMMIT: "paused" });
-  };
+  const pause = pauseApp;
 
   server.registerTool(
     "pause_app",
@@ -419,6 +451,8 @@ function tools(server: McpServer, ctx: Ctx) {
       await mustAgree();
       if (RESERVED.has(name)) throw new Error(`${name} can't be used as a name. Pick another.`);
       if (name.includes("--")) throw new Error("A name can't have two dashes in a row. Pick another.");
+      const badName = !ctx.isMaker && nameProblem(name, title);
+      if (badName) throw new Error(`${badName}. Pick a name of the person's own.`);
       // Apps on the free plan live on Grove's shared runner; paid ones get a database and address of their own.
       const { rows: [{ mine, total }] } = await pool.query("select count(*) filter (where $1 = any(makers))::int mine, count(*) filter (where host = 'neon')::int total from apps", [person.email]);
       const plan = await planFor(pool, person.email);
@@ -430,6 +464,8 @@ function tools(server: McpServer, ctx: Ctx) {
               ? `That's all ${plan.apps} apps on the free plan. The paid plan allows ${PAID()}: the upgrade tool gives a payment link.`
               : `That's all ${plan.apps} apps on your plan. Ask the Grove maker for more.`,
         );
+      const trust = await trustOf(pool, person.email, { paid: plan.plan === "paid", isMaker: ctx.isMaker });
+      if (!trust.trusted && mine >= NEW_APPS()) throw new Error(`New accounts can make ${NEW_APPS()} apps in their first ${NEW_DAYS()} days. More are available after that${billingOn() ? ", or straight away on the paid plan" : ""}, or once the person shows they run a website with verify_site.`);
       const host = runner.runnerOn() && plan.plan === "free" ? "runner" : "neon";
       if (host === "neon" && total >= Number(process.env.GROVE_MAX_APPS ?? 80)) throw new Error("Grove is full for now. Ask the Grove maker.");
       const taken = await pool.query("insert into apps (slug, title, description, makers, users, secret_hash) values ($1, $2, $3, $4, $5, $6) on conflict do nothing", [name, title, description, [person.email], users.map((u) => u.toLowerCase()), hash(appSecret(name))]);
@@ -907,6 +943,7 @@ function tools(server: McpServer, ctx: Ctx) {
       const source = files["src/imported/site.ts"]?.match(/export const SOURCE = "([^"]+)"/)?.[1];
       if (source && !ctx.isMaker && !(await owns(pool, a.makers, source)))
         throw new Error(`This change has a copy of ${source}, which can't go live until the person shows the site is theirs. Call verify_site for ${source}, then ship again.`);
+      if (!ctx.isMaker) await safeToShip(a, files, await filesOf(a.live), ch.version);
       const archive = await built(files);
       const { rows: [msg] } = await pool.query("select message from versions where id = $1", [ch.version]);
       if (ch.base !== a.live) version = await save(slug, files, msg.message, person.email);
@@ -1146,6 +1183,14 @@ function routes(app: import("hono").Hono<any>) {
     if (!a) return c.html(reportPage(typed.trim().slice(0, 200), "We couldn't find an app with that name. Check the address and try again."), 404);
     if (await report(pool, a.slug, what, from || "someone who didn't leave an email")) {
       const { rows } = await pool.query("select email from maple_people where role = 'maker'");
+      // Several different people reporting a new account's app takes it offline until someone looks.
+      const { rows: [full] } = await pool.query("select * from apps where slug = $1", [a.slug]);
+      if (full?.limited && !full.paused_at && (await distinctReports(pool, a.slug)) >= AUTO_PAUSE_REPORTS()) {
+        waitUntil(pauseApp(full, "Several people reported this app, so it is paused until Grove's maker has looked at it.").then(
+          () => email(rows.map((r) => r.email), `Paused automatically: ${a.slug}`, `${a.slug} (${a.url}) had ${AUTO_PAUSE_REPORTS()} or more reports from different people this week and its maker's account is new, so it was paused. list_reports shows them; resume_app puts it back.`),
+          (e) => console.error("auto-pause failed:", e),
+        ));
+      }
       waitUntil(email(rows.map((r) => r.email), `Report about ${a.slug}`, `${what.slice(0, 2000)}\n\nApp: ${a.url}\nFrom: ${from || "no email given"}\n\nlist_reports in Grove shows all open reports; pause_app takes an app offline.`, from || undefined).catch(() => false));
     }
     return c.html(reportPage("", "Thank you. Your report has been sent and a person will read it."));
@@ -1257,14 +1302,16 @@ function routes(app: import("hono").Hono<any>) {
       const id = randomUUID();
       if (service === "email") {
         const mail = checkEmail(body);
-        const who = whoGets(mail.to, [...a.makers, ...a.users], trial);
+        // A new account's apps only email the app's own people, like a trial copy.
+        const who = whoGets(mail.to, [...a.makers, ...a.users], trial || Boolean(a.limited));
         const paid = (await planFor(pool, a.makers[0])).plan !== "free";
+        if ((await personEmailsToday(pool, a.makers[0])) + who.sent.length > personEmailsPerDay(paid)) throw new ServiceError(`The apps this person makes have sent all the emails they can today (${personEmailsPerDay(paid)} between them).`, 429);
         const { rows: [{ sent }] } = await pool.query("select coalesce(sum(jsonb_array_length(result->'sent')), 0)::int sent from service_calls where app = $1 and service = 'email' and at > now() - interval '1 day'", [a.slug]);
         if (sent + who.sent.length > appEmailsPerDay(paid)) throw new ServiceError(`This app has sent all the emails it can today (${appEmailsPerDay(paid)}).`, 429);
         const went: string[] = [], failed: string[] = [];
         for (const to of who.sent) ((await sendMail(`${fromName(a.title)} <grove@${new URL(site).host}>`, to, mail.subject, mail.text + footer(a, site), mail.replyTo ?? a.makers[0])) ? went : failed).push(to);
         if (failed.length && !went.length) throw new ServiceError("The email could not be sent. Try again in a minute.", 502);
-        result = { sent: went, held: who.held, ...(failed.length && { failed }), ...(who.held.length && { note: "This is a trial copy, so only the app's own people were emailed. The held addresses will be emailed once the change is live." }) };
+        result = { sent: went, held: who.held, ...(failed.length && { failed }), ...(who.held.length && { note: trial ? "This is a trial copy, so only the app's own people were emailed. The held addresses will be emailed once the change is live." : "This app's maker is new to Grove, so for now it only emails the app's own people. Others can be emailed once the account has been around a few days." }) };
         kept = { to: mail.to, subject: mail.subject };
       } else if (service === "tasks") {
         if (!trial) await wakeAt(pool, a.slug, body);
@@ -1316,6 +1363,15 @@ function routes(app: import("hono").Hono<any>) {
     if (runner.runnerOn()) waitUntil(fetch(`${process.env.RUNNER_URL!.replace(/\/$/, "")}/runner/health`, { signal: AbortSignal.timeout(20_000) }).catch(() => undefined));
     const woken = await wakeDue(pool, appSecret);
     if (await due(pool, "prune")) waitUntil(prune(pool).then((r) => console.log("pruned", JSON.stringify(r)), (e) => console.error("prune failed:", e)));
+    // New accounts' limits lift on their own: put their apps up again once the account counts as trusted.
+    if (await due(pool, "lift-limits", "1 hour"))
+      waitUntil((async () => {
+        const { rows } = await pool.query("select * from apps where limited and paused_at is null and live is not null and status = 'live'");
+        for (const a of rows) {
+          const paid = (await planFor(pool, a.makers[0])).plan === "paid";
+          if ((await trustOf(pool, a.makers[0], { paid })).trusted) await putUpAgain(a).catch((e) => console.error(`lifting limits on ${a.slug}:`, e));
+        }
+      })().catch((e) => console.error("lift-limits failed:", e)));
     // Export files people uploaded for an import are only needed for a while.
     if (await due(pool, "prune-uploads", "6 hours"))
       waitUntil(pool.query("delete from uploads where at < now() - interval '7 days' returning id, app").then(({ rows }) => Promise.allSettled(rows.map((u) => deleteObject(`imports/${u.app}/${u.id}`))), (e) => console.error("upload prune failed:", e)));
@@ -1325,6 +1381,12 @@ function routes(app: import("hono").Hono<any>) {
   // A file an app asked Grove to keep. Public ones open for anyone; private ones need a link that hasn't run out.
   // Served so a browser never runs it as part of this site: images show, everything else downloads.
   app.get("/files/:id/:name", async (c) => {
+    // With a separate address for apps' files, old links on Grove's own address move there.
+    const filesUrl = process.env.FILES_URL?.replace(/\/$/, "");
+    if (filesUrl && new URL(c.req.url).hostname !== new URL(filesUrl).hostname && c.req.header("x-forwarded-host") !== new URL(filesUrl).hostname) {
+      const u = new URL(c.req.url);
+      return c.redirect(`${filesUrl}${u.pathname}${u.search}`, 301);
+    }
     await init();
     const id = c.req.param("id");
     const { rows: [f] } = /^[0-9a-f-]{36}$/.test(id) ? await pool.query("select f.*, a.paused_at from files f join apps a on a.slug = f.app where f.id = $1", [id]) : { rows: [] };

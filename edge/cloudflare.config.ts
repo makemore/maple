@@ -19,6 +19,8 @@ export default defineConfig({
       RUNNER_ORIGIN: bindings.text(process.env.RUNNER_ORIGIN ?? ""),
       RUNNER_HOSTS: bindings.text(process.env.RUNNER_HOSTS ?? ""),
       EDGE_SECRET: bindings.secret(),
+      // Requests one visitor may make to one app in a minute, before getting "too many requests".
+      LIMIT_PER_MINUTE: bindings.text(process.env.EDGE_LIMIT_PER_MINUTE ?? "600"),
     },
   },
 });

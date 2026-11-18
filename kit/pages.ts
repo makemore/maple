@@ -216,3 +216,23 @@ $("sign-out").addEventListener("click", async (e) => { e.preventDefault(); await
 ${SIGN_IN_SCRIPT}
 if ((await auth.getSession()).data?.user) await signedIn(); else show("card", true);`,
   );
+
+/**
+ * For apps from brand-new accounts: links to other sites lose their address (the words stay), forms can't
+ * send anywhere else, and the page asks search engines to stay away. Links within the app and to Grove work.
+ */
+export function withoutOutsideLinks(html: string, own: string[]) {
+  const mine = (u: string) => {
+    try {
+      const host = new URL(u, "https://same.invalid").hostname;
+      return host === "same.invalid" || own.some((o) => host === o || host.endsWith(`.${o}`));
+    } catch {
+      return false;
+    }
+  };
+  const out = html
+    .replace(/(<a\b[^>]*?)\shref\s*=\s*(["'])(.*?)\2/gi, (w, start, _q, href) => (/^\s*(#|mailto:|tel:)/i.test(href) || mine(href) ? w : `${start} data-link-off="new account" title="Links to other sites work once this app's maker has been on Grove a few days"`))
+    .replace(/(<form\b[^>]*?)\saction\s*=\s*(["'])(.*?)\2/gi, (w, start, _q, action) => (mine(action) ? w : `${start} action="#"`))
+    .replace(/<meta[^>]+http-equiv\s*=\s*["']?refresh[^>]*>/gi, "");
+  return out.includes("</head>") ? out.replace("</head>", '<meta name="robots" content="noindex, nofollow">\n</head>') : out;
+}

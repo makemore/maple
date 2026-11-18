@@ -39,6 +39,13 @@ export default defineConfig({
         // Apps get <name>.<this domain>. Its DNS needs a wildcard CNAME to Neon's custom-domain target. Unset: Neon's own addresses.
         APPS_DOMAIN: { value: process.env.APPS_DOMAIN, required: false },
         GROVE_MAX_APPS: { value: process.env.GROVE_MAX_APPS, required: false },
+        // Safety. Each is optional, and each keeps its deployed value when a deploy doesn't give one.
+        // FILES_URL: a separate address (e.g. https://files.grovehelper.net) that serves apps' files, pointed at this function.
+        FILES_URL: { value: process.env.FILES_URL, required: false, onUndefined: "skip" },
+        // SAFE_BROWSING_KEY: a Google Safe Browsing API key; links in a change are checked before it ships.
+        SAFE_BROWSING_KEY: { value: process.env.SAFE_BROWSING_KEY, required: false, onUndefined: "skip" },
+        // ANTHROPIC_API_KEY: turns on the AI review of public pages before they ship.
+        ANTHROPIC_API_KEY: { value: process.env.ANTHROPIC_API_KEY, required: false, onUndefined: "skip" },
         // Stripe and Postmark keep the values already deployed when a deploy doesn't give them, so deploying from a
         // machine without those keys can't switch payments or email off.
         // Payments (all three, or none for free only): a Stripe secret key, the monthly price of the paid plan, and the

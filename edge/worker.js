@@ -45,9 +45,27 @@ function toRunner(request, incoming, env) {
   return fetch(upstream, { method: request.method, headers, body: request.body, redirect: "manual" });
 }
 
+// Traffic limits, per visitor (IP address) and app, counted in each Cloudflare location's memory: a
+// best-effort brake on one visitor hammering one app, not an exact count. Cloudflare's own attack
+// protection sits in front of this. LIMIT_PER_MINUTE can raise or lower it.
+const hits = new Map(); // "ip host" -> { start, n }
+const MAX_BODY = 32 * 1024 * 1024;
+function tooMany(request, host, env) {
+  const limit = Number(env.LIMIT_PER_MINUTE) || 600;
+  const key = `${request.headers.get("cf-connecting-ip") ?? "?"} ${host}`;
+  const now = Date.now();
+  let h = hits.get(key);
+  if (!h || now - h.start > 60_000) hits.set(key, (h = { start: now, n: 0 }));
+  h.n++;
+  if (hits.size > 50_000) for (const [k, v] of hits) if (now - v.start > 60_000) hits.delete(k);
+  return h.n > limit;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const incoming = new URL(request.url);
+    if (tooMany(request, incoming.hostname, env)) return new Response("Too many requests. Please wait a minute and try again.", { status: 429, headers: { "retry-after": "60" } });
+    if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) return new Response("That's too big to send to this app.", { status: 413 });
     // Addresses served by Grove's shared runner (sign-in, and the apps that share it). The runner only
     // answers requests that carry the secret, so nobody can go round the front door.
     if (env.RUNNER_ORIGIN && (env.RUNNER_HOSTS ?? "").split(",").includes(incoming.hostname)) return toRunner(request, incoming, env);

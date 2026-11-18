@@ -13,7 +13,7 @@ import { Pool } from "pg";
 import { z } from "zod";
 import { createServices, type Services } from "./services.ts";
 import { TASKS_SCHEMA, TICK_PATH, createTasks, jobList, tick, type Jobs } from "./tasks.ts";
-import { consentPage, groveBadge, homePage, signInPage, withBadge, ICON_SVG } from "./pages.ts";
+import { consentPage, groveBadge, homePage, signInPage, withBadge, withoutOutsideLinks, ICON_SVG } from "./pages.ts";
 
 export { z };
 export type Role = "maker" | "user";
@@ -354,6 +354,22 @@ export function createMapleApp(def: AppDef) {
       const headers = new Headers(c.res.headers);
       headers.delete("content-length");
       c.res = new Response(withBadge(await c.res.text(), badge), { status: c.res.status, headers });
+    });
+  }
+
+  // Apps made by a brand-new Grove account (GROVE_LIMITED): pages stay out of search engines and links to
+  // other sites don't work yet, so a fresh account can't use an app as a stepping stone to somewhere bad.
+  if (process.env.GROVE_LIMITED) {
+    const own = [process.env.PUBLIC_URL, process.env.GROVE_URL].filter(Boolean).map((u) => new URL(u!).hostname);
+    app.use("*", async (c, next) => {
+      await next();
+      try {
+        c.res.headers.set("x-robots-tag", "noindex, nofollow");
+      } catch {}
+      if (!c.res.headers.get("content-type")?.startsWith("text/html") || !c.res.body) return;
+      const headers = new Headers(c.res.headers);
+      headers.delete("content-length");
+      c.res = new Response(withoutOutsideLinks(await c.res.text(), [...own, new URL(c.req.url).hostname]), { status: c.res.status, headers });
     });
   }
 

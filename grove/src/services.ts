@@ -241,7 +241,9 @@ export function checkFile(body: any) {
 }
 
 /** A private file's link: good until `until`, and only for that file. */
-export const fileLink = (site: string, f: { id: string; name: string; public?: boolean }, sign: (what: string) => string, minutes = 60, now = Date.now()) => {
+export const fileLink = (site0: string, f: { id: string; name: string; public?: boolean }, sign: (what: string) => string, minutes = 60, now = Date.now()) => {
+  // Apps' files can be served from a domain of their own (FILES_URL), so a bad file can never get Grove's own address blocked.
+  const site = process.env.FILES_URL?.replace(/\/$/, "") || site0;
   if (f.public) return `${site}/files/${f.id}/${f.name}`;
   const until = Math.floor(now / 1000) + Math.round(Math.min(Math.max(minutes, 1), 60 * 24 * 7) * 60);
   return `${site}/files/${f.id}/${f.name}?until=${until}&sig=${sign(`file:${f.id}:${until}`).slice(0, 32)}`;
