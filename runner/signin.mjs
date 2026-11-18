@@ -52,10 +52,19 @@ export const auth = betterAuth({
   ],
 });
 
+/**
+ * Makes or updates the sign-in service's tables. Working out what needs doing takes a dozen
+ * round trips to the database, so it is only done when this version hasn't done it before.
+ */
 export async function ready() {
+  // Change this when Better Auth or its plugins change, so the tables are checked again.
+  const version = "better-auth-1.7.25:email-otp,jwt,oauth-provider";
+  const { rows } = await db.query("select 1 from runner.prepared where what = 'signin' and version = $1", [version]).catch(() => ({ rows: [] }));
+  if (rows.length) return;
   await db.query("create schema if not exists signin");
   const { runMigrations } = await getMigrations(auth.options);
   await runMigrations();
+  await db.query("insert into runner.prepared (what, version) values ('signin', $1) on conflict (what) do update set version = $1, at = now()", [version]);
 }
 
 /** Lets the sign-in service issue tokens for an app's address. */

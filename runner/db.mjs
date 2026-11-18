@@ -23,6 +23,7 @@ create table if not exists runner.apps (
   slug text primary key, version bigint not null default 1, code text not null, env jsonb not null default '{}',
   paused boolean not null default false, created_at timestamptz not null default now(), updated_at timestamptz not null default now());
 create table if not exists runner.usage (slug text not null, day date not null default current_date, requests bigint not null default 0, queries bigint not null default 0, primary key (slug, day));
+create table if not exists runner.prepared (what text primary key, version text not null, at timestamptz not null default now());
 revoke all on schema public from public;`;
 
 export const NAME = /^[a-z][a-z0-9-]{1,61}[a-z0-9]$/;

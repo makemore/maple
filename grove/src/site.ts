@@ -492,8 +492,8 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
       <div class="no">
         <h3>What we won't do</h3>
         <ul>
-          <li>Copy a site that isn't yours. Only move what you own, or look after with the owner's say-so</li>
-          <li>Build pages made to look like a bank, a login page or someone else's brand. Grove checks for these and turns them away</li>
+          <li>Put a copy of a site live until you've shown it's yours, with a code on the site or in its DNS</li>
+          <li>Copy banks, government sites or big brands, or keep any script, password box or form from a copied page</li>
           <li>Move a shop's card checkout yet. Real card payments are still to come</li>
         </ul>
       </div>
@@ -642,7 +642,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
         <details><summary>Does it use up my Claude or ChatGPT allowance?</summary><p>Yes. Making and changing apps is work your assistant does, so it counts against your plan with them. Using an app is light; building one is heavier. Grove keeps count, tells you how big a job is, and stops to ask before a day's work gets large.</p></details>
         <details><summary>What if Grove gets something wrong?</summary><p>It will sometimes. That's why every change goes to a trial copy first and can be undone after. Check that an app does what you meant before you rely on it.</p></details>
         <details><summary>Can I make things for other people or businesses?</summary><p>Yes, and we hope you do. You stay the maker: you name who can use it, they ask you for changes, and you can hand them the code and the information at any time. What you charge them is up to you.</p></details>
-        <details><summary>Can I move my existing website or tools here?</summary><p>Yes, if they're yours. Tell your assistant where the site lives now, or hand it an export (WordPress's export file, a CSV, a spreadsheet). Grove copies your content to a trial copy and rebuilds the features you use. Your old site keeps running until you switch, so you can stop paying for hosting and plugins once you're happy. Grove won't copy sites you don't own or run.</p></details>
+        <details><summary>Can I move my existing website or tools here?</summary><p>Yes, if they're yours. Tell your assistant where the site lives now, or hand it an export (WordPress's export file, a CSV, a spreadsheet). Grove copies your pages and pictures to a trial copy, and your assistant rebuilds the forms and features you use. Before the copy goes live you show the site is yours, with a short code on the site or in its DNS. Your old site keeps running until you switch, so you can stop paying for hosting and plugins once you're happy.</p></details>
         <details><summary>Can I leave?</summary><p>Yes, with everything. You can download any app's code and take a copy of its information at any time, and the app runs without Grove.</p></details>
         <details><summary>Who can join?</summary><p>Anyone. Add Grove to your assistant and sign in with your email. It is new, so expect rough edges, and tell us when you hit one.</p></details>
       </div>

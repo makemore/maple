@@ -5,3 +5,4 @@ node_modules
 grove/src/template-files.ts
 .env.*
 .cloudflare
+dist

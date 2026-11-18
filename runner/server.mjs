@@ -6,7 +6,7 @@ import { Readable } from "node:stream";
 import { bundleForRunner } from "./build.mjs";
 import { admin, SCHEMA, copyApp, dumpApp, pauseApp, putApp, removeApp, sqlAs } from "./db.mjs";
 import * as signin from "./signin.mjs";
-import { forget, run, stop } from "./sandbox.mjs";
+import { forget, ready, run, stop } from "./sandbox.mjs";
 
 const DOMAIN = process.env.APPS_DOMAIN;
 const SIGNIN_HOST = new URL(process.env.SIGNIN_URL).host;
@@ -64,11 +64,19 @@ async function answer(req) {
   return new Response("There is nothing at this address.", { status: 404 });
 }
 
-await admin.query(SCHEMA);
-await signin.ready();
+// Start answering straight away. Getting the database and sign-in ready happens alongside, and a
+// request only waits for the part it needs. Each part says how long it took, to keep start-up honest.
+const began = performance.now();
+const took = (what) => (v) => (console.log(`start-up: ${what} ready after ${Math.round(performance.now() - began)}ms (process up ${Math.round(process.uptime() * 1000)}ms)`), v);
+const prepared = admin.query(SCHEMA).then(took("database"));
+const signInReady = prepared.then(() => signin.ready()).then(took("sign-in"));
+ready.then(took("sandbox"));
+prepared.catch((e) => console.error("start-up failed:", e));
+signInReady.catch((e) => console.error("sign-in start-up failed:", e));
 
 const server = createServer(async (req, res) => {
   try {
+    if (req.url !== "/runner/health") await (hostOf(req).host === SIGNIN_HOST || req.url.startsWith("/runner/admin/") ? signInReady : prepared);
     const out = await answer(req);
     const headers = {};
     out.headers.forEach((v, k) => { if (k !== "set-cookie") headers[k] = v; });
@@ -84,5 +92,7 @@ const server = createServer(async (req, res) => {
   }
 });
 const port = Number(process.env.PORT ?? 8080);
-server.listen(port, () => console.log(`runner listening on ${port}`));
+// Only take requests once the sandbox is up, so a new copy of the runner is never sent visitors it can't serve yet.
+await ready;
+server.listen(port, () => console.log(`runner listening on ${port} after ${Math.round(performance.now() - began)}ms (process up ${Math.round(process.uptime() * 1000)}ms)`));
 for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => server.close(() => stop().finally(() => process.exit(0))));

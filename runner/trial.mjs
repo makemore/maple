@@ -43,7 +43,7 @@ async function local() {
   await wipe.query("drop schema if exists signin cascade; drop schema if exists runner cascade");
   await wipe.end();
   await provision("trial", "maker@example.com");
-  const server = spawn("node", ["server.mjs"], { env, stdio: ["ignore", "pipe", "inherit"] });
+  const server = spawn("node", [process.env.RUNNER_ENTRY ?? "server.mjs"], { env, stdio: ["ignore", "pipe", "inherit"] });
   let out = "";
   server.stdout.on("data", (d) => (out += d));
   try {

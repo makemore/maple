@@ -78,8 +78,11 @@ function retire(old) {
   }, 1000);
   check.unref();
 }
-let now = await fresh(), turning;
+// The first sandbox starts while the server is already listening; a request for an app waits for it.
+let now, turning;
+export const ready = fresh().then((box) => (now = box));
 async function sandboxFor(slug) {
+  await ready;
   if (!now.warm.has(slug) && now.warm.size >= MAX_WARM) {
     turning ??= (async () => {
       const old = now;
@@ -131,4 +134,4 @@ export async function run(slug, request) {
 }
 /** Forget what is remembered about an app, so a change shows straight away. */
 export const forget = (slug) => versions.delete(slug);
-export const stop = () => now.mf.dispose();
+export const stop = () => ready.then(() => now.mf.dispose());

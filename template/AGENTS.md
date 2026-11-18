@@ -62,6 +62,20 @@ database or from a visitor before putting it in HTML. Write plain HTML and CSS i
 no build step, no outside scripts needed. Don't use `/`, `/account`, `/auth/`, `/mcp` or
 `/.well-known/`: the kit owns them.
 
+## Imported sites and spreadsheets
+
+Grove's `import_site` and `import_data` put what they bring in under `src/imported/`:
+
+- `pages-*.ts` and `styles-*.ts`: a copied website's pages (cleaned HTML, served at their old
+  paths) and stylesheets. `render.ts` serves them with a policy that lets no script run. Edit
+  them like any other file; to restyle a page, change its `body` or the CSS.
+- `forms.ts`: the forms the old site had. Each page shows `[Form n]` where one was. Rebuild each
+  as a table, a route that checks and saves what's sent, and the form's HTML in the page.
+- `posts-*.ts`: blog posts as data, ready to become a table and a blog page.
+- `data-<table>-*.ts`: a table and rows from a spreadsheet; the rows load once.
+- `index.ts`: puts them together for `src/app.ts` (`importedSchema`, `importedRoutes`,
+  `importedHome`). Grove rewrites it after each import, so don't edit it.
+
 ## Things Grove does for the app
 
 `services` (in a tool's `ctx`, and the third argument of `routes`) has what would otherwise need

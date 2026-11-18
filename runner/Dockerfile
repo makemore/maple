@@ -11,6 +11,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY *.mjs dispatcher.js ./
 COPY shims ./shims
+# One file starts much faster than thousands (see pack.mjs).
+RUN node pack.mjs
 ENV NODE_ENV=production
 USER node
-CMD ["node", "server.mjs"]
+CMD ["node", "dist/server.mjs"]
