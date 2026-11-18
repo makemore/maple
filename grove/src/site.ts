@@ -552,12 +552,14 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
   <section class="wrap" id="safe">
     <p class="kicker">Careful by design</p>
     <h2>Built so a mistake is easy to undo</h2>
-    <p class="intro">Apps are written with the help of AI, and AI gets things wrong. Grove is made with that in mind.</p>
+    <p class="intro">Apps are written with the help of AI, and AI gets things wrong. Some people will try to misuse it too. Grove is made with both in mind.</p>
     <ul class="cards two">
       <li><h3>Try before it's live</h3><p>Every change goes to a trial copy of the app with a copy of your information. The live app only changes when you say so.</p></li>
       <li><h3>Undo</h3><p>Shipped something you regret? Go back to how it was before, in one sentence.</p></li>
       <li><h3>Checked before it's saved</h3><p>Code that doesn't hold together is refused before it gets anywhere near your app.</p></li>
       <li><h3>It tells you the cost</h3><p>Building uses your assistant's allowance. Grove keeps count, and stops to ask before a day's work gets large.</p></li>
+      <li><h3>Checked for scams</h3><p>Before anything goes live, Grove turns away pages that ask for passwords or card details, pretend to be a bank or a big company, or link to sites known to be dangerous.</p></li>
+      <li><h3>New accounts start careful</h3><p>For the first few days, pages stay out of search engines, links elsewhere are off and apps only email their own people. It lifts by itself, so anyone can try Grove and nobody can use it to trick people.</p></li>
     </ul>
   </section>
 
