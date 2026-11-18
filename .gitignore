@@ -4,3 +4,4 @@ node_modules
 .neon
 grove/src/template-files.ts
 .env.*
+.cloudflare
