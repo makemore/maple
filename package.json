@@ -16,7 +16,8 @@
     "test:live:runner": "(set -a; . ./.env.grove; set +a; cd runner && node --experimental-strip-types trial.mjs live runnertrial $APPS_DOMAIN)",
     "test:live:move": "MAPLE_TEST_TOKEN=$(grep ^MAPLE_TEST_TOKEN .env.grove | cut -d= -f2) node --env-file=.env.grove scripts/e2e-move.ts",
     "secrets:pull": "node scripts/secrets.ts pull",
-    "secrets:push": "node scripts/secrets.ts push"
+    "secrets:push": "node scripts/secrets.ts push",
+    "grove": "node cli/grove.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.10.0",
@@ -40,5 +41,8 @@
     "@types/pg": "^8.23.1",
     "esbuild": "^0.28.2",
     "typescript": "^5.9.0"
+  },
+  "bin": {
+    "grove": "cli/grove.ts"
   }
 }

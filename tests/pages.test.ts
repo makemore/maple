@@ -52,13 +52,21 @@ test("front page: shows the paid plan only when there is one", () => {
   assert.doesNotMatch(free, /just by asking/);
   assert.doesNotMatch(free, /<h3>Plus<\/h3>/);
   const paid = sitePage(MCP, 3, { price: "£12 a month", apps: 25 });
-  assert.match(paid, /<h3>Plus<\/h3>\s*<p class="big" id="plus-price">£12 a month<\/p>/);
+  assert.match(paid, /<h3>Plus<\/h3>\s*<p class="big"><span id="plus-price">£12 a month<\/span><\/p>/);
   assert.match(paid, /Up to 25 websites and apps/);
   assert.match(sitePage(MCP, 5, undefined, undefined, 100), /5 websites and apps, and up to 100 just by asking/, "the promise of more only when there is more");
   const local = sitePage(MCP, 5, { price: "$10 a month", apps: 10, prices: { usd: "$10 a month", gbp: "£10 a month" } });
-  assert.match(local, /id="plus-price" data-prices="\{&#34;usd&#34;:&#34;\$10 a month&#34;,&#34;gbp&#34;:&#34;£10 a month&#34;\}">\$10 a month</);
+  assert.match(local, /<span id="plus-price" data-prices="\{&#34;usd&#34;:&#34;\$10 a month&#34;,&#34;gbp&#34;:&#34;£10 a month&#34;\}">\$10 a month</);
   assert.match(local, /in your own currency where it is one of USD, GBP/);
   sound(paid);
+});
+
+test("front page: the per-site plan shows what's included, the extra per site and the yearly price, each in the visitor's currency", () => {
+  const html = sitePage(MCP, 5, { price: "$10 a month", apps: 10, prices: { usd: "$10 a month", gbp: "£10 a month" }, extra: "$1 a month", extras: { usd: "$1 a month", gbp: "£1 a month" }, yearly: "$100 a year", yearlies: { usd: "$100 a year", gbp: "£100 a year" } });
+  assert.match(html, /10 websites and apps included, then <span data-prices="[^"]+">\$1 a month<\/span> for each one after that/);
+  assert.match(html, /or <span data-prices="[^"]+">\$100 a year<\/span>, two months free/);
+  assert.equal(html.match(/data-prices=/g)!.length, 3);
+  sound(html);
 });
 
 test("front page: the example at the top plays in steps, and every step up to the last has something to show", () => {

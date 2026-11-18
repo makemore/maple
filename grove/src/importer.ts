@@ -446,3 +446,24 @@ export const homeOf = (pages: Page[], source: string) => {
 
 /** Takes the old import's files out, so a fresh import replaces it rather than leaving stale pages behind. */
 export const withoutOldSite = (files: Files) => Object.fromEntries(Object.entries(files).filter(([p]) => !/^src\/imported\/(pages|styles|posts)-\d+\.ts$|^src\/imported\/(site|forms)\.ts$/.test(p)));
+
+/**
+ * A site as a private preview served by Grove at base (e.g. /preview/<token>): its pages with links between
+ * them pointing inside the preview, and its inline stylesheets at base/styles/<id>.css. Nothing else is
+ * kept: pictures and the site's own stylesheets still load from where they are.
+ */
+export function previewOf(site: Site & { reg: Registry }, base: string) {
+  const inside = (html: string) => html.replace(/(href|action)="(\/(?!\/)[^"]*)"/g, (_, attr, path) => `${attr}="${base}${path === "/" ? "/" : path}"`);
+  const pages = site.pages.map((p) => ({
+    path: p.path,
+    title: p.title,
+    description: p.description,
+    lang: p.lang,
+    bodyClass: p.bodyClass,
+    styles: p.styles.map((s) => (s.startsWith("inline:") ? `${base}/styles/${s.slice(7)}.css` : placed(site.reg, s))).filter((s) => s && !s.startsWith("grove-asset")),
+    body: inside(placed(site.reg, p.body)),
+  }));
+  const css = Object.fromEntries(Object.entries(site.css).map(([id, c]) => [id, placed(site.reg, c)]));
+  return { source: site.source, platform: site.platform, title: site.title, pages, css, forms: site.forms.reduce((n, f) => n + f.forms.length, 0) };
+}
+export type Preview = ReturnType<typeof previewOf>;

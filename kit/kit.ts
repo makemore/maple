@@ -63,6 +63,11 @@ export interface AppDef {
   jobs?: AppJobs;
   /** The app's own front page, as HTML. With one, the signed-in page (connect steps, requests) moves to /account. */
   home?: (info: { title: string; site: string; mcpUrl: string }) => string;
+  /**
+   * Personal tokens, for scripts and command lines that can't sign in with OAuth: given the bearer token,
+   * the verified email it belongs to, or undefined. Only tokens starting "maple_" or "grove_" are offered.
+   */
+  token?: (bearer: string) => Promise<string | undefined>;
 }
 
 type Env = McpAuthVariables & { Variables: { person?: Person } };
@@ -408,6 +413,14 @@ export function createMapleApp(def: AppDef) {
   app.use("/mcp", async (c, next) => {
     if (isTestToken(c)) {
       c.set("person", { email: m.maker.email.toLowerCase(), role: "maker" });
+      return next();
+    }
+    const bearer = (c.req.header("authorization") ?? "").replace(/^Bearer /i, "");
+    if (def.token && /^(maple|grove)_[A-Za-z0-9_-]{20,}$/.test(bearer)) {
+      const email = await def.token(bearer);
+      const person = email && (await personFor(email, email));
+      if (!person) return c.json({ error: "That token isn't valid any more." }, 401);
+      c.set("person", person);
       return next();
     }
     return oauth(c, async () => {

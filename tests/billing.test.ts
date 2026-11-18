@@ -85,22 +85,61 @@ test("more apps for the asking: none by default; when a ceiling is set, a step a
   }
 });
 
-test("the paid plan's price: round numbers in five currencies, made once in Stripe and found again by its key", async () => {
-  const { PLAN_AMOUNTS, LOOKUP_KEY, thePrice } = await import("../grove/src/billing.ts");
-  assert.deepEqual(Object.keys(PLAN_AMOUNTS), ["usd", "gbp", "eur", "cad", "aud"]);
-  for (const a of Object.values(PLAN_AMOUNTS)) assert.equal(a % 100, 0, "whole units");
+test("the paid plan's prices: round numbers in five currencies, monthly and yearly, graduated so the first 10 sites share the base price", async () => {
+  const { PLAN_AMOUNTS, thePrice, planPrices, priceText } = await import("../grove/src/billing.ts");
+  for (const i of ["month", "year"] as const) {
+    assert.deepEqual(Object.keys(PLAN_AMOUNTS[i].base), ["usd", "gbp", "eur", "cad", "aud"]);
+    assert.deepEqual(Object.keys(PLAN_AMOUNTS[i].extra), Object.keys(PLAN_AMOUNTS[i].base));
+    for (const a of [...Object.values(PLAN_AMOUNTS[i].base), ...Object.values(PLAN_AMOUNTS[i].extra)]) assert.equal(a % 50, 0, "round amounts");
+  }
+  for (const c of Object.keys(PLAN_AMOUNTS.year.base)) assert.equal(PLAN_AMOUNTS.year.base[c], PLAN_AMOUNTS.month.base[c] * 10, "a year is ten months");
+  assert.deepEqual(planPrices().month.gbp, { base: "£10 a month", extra: "£1 a month" });
+  assert.deepEqual(planPrices().year.cad, { base: "C$140 a year", extra: "C$15 a year" });
+  assert.equal(priceText(), "$10 a month (or $100 a year) for up to 10 sites, then $1 a month ($10 a year) for each one after that");
   process.env.STRIPE_PRICE_ID = "price_old";
+  const key = PLAN_AMOUNTS.year.lookup;
   stripeAnswers({
-    [`/prices?lookup_keys[]=${LOOKUP_KEY}&active=true&expand[]=data.currency_options`]: { data: [] },
+    [`/prices?lookup_keys[]=${key}&active=true`]: { data: [] },
     "/prices/price_old": { id: "price_old", product: "prod_grove" },
-    "/prices?expand[]=currency_options": { id: "price_new", currency: "usd", unit_amount: 1000, recurring: { interval: "month" }, currency_options: { gbp: { unit_amount: 1000 }, eur: { unit_amount: 1000 }, cad: { unit_amount: 1400 }, aud: { unit_amount: 1500 } } },
+    "/prices": { id: "price_year" },
   });
-  const p = await thePrice();
-  assert.equal(p.id, "price_new");
-  assert.deepEqual(p.prices, { usd: "$10", gbp: "£10", eur: "€10", cad: "C$14", aud: "A$15" });
-  const made = calls.find((c) => c.method === "POST" && c.path.startsWith("/prices"))!;
-  const sent = new URLSearchParams(made.body);
-  assert.deepEqual([sent.get("product"), sent.get("currency"), sent.get("unit_amount"), sent.get("lookup_key"), sent.get("currency_options[gbp][unit_amount]")], ["prod_grove", "usd", "1000", LOOKUP_KEY, "1000"]);
+  assert.equal(await thePrice("year"), "price_year");
+  const sent = new URLSearchParams(calls.find((c) => c.method === "POST" && c.path === "/prices")!.body);
+  assert.deepEqual(
+    ["product", "currency", "billing_scheme", "tiers_mode", "recurring[interval]", "lookup_key", "tiers[0][up_to]", "tiers[0][flat_amount]", "tiers[0][unit_amount]", "tiers[1][up_to]", "tiers[1][unit_amount]", "currency_options[aud][tiers][0][flat_amount]", "currency_options[aud][tiers][1][unit_amount]"].map((k) => sent.get(k)),
+    ["prod_grove", "usd", "tiered", "graduated", "year", key, "10", "10000", "0", "inf", "1000", "15000", "1500"],
+  );
+  calls = [];
+  stripeAnswers({ [`/prices?lookup_keys[]=${key}&active=true`]: { data: [{ id: "price_year" }] } });
+  assert.equal(await thePrice("year"), "price_year", "made once, then remembered");
+});
+
+test("checkout: the chosen interval's price, with as many sites as the person already has", async () => {
+  const { PLAN_AMOUNTS } = await import("../grove/src/billing.ts");
+  stripeAnswers({
+    [`/prices?lookup_keys[]=${PLAN_AMOUNTS.month.lookup}&active=true`]: { data: [{ id: "price_month" }] },
+    "/checkout/sessions": { url: "https://checkout.stripe.com/x" },
+  });
+  assert.equal(await checkout("a@b.c", "https://grove.test", undefined, "month", 14), "https://checkout.stripe.com/x");
+  const sent = new URLSearchParams(calls.find((c) => c.path === "/checkout/sessions")!.body);
+  assert.deepEqual([sent.get("line_items[0][price]"), sent.get("line_items[0][quantity]"), sent.get("mode")], ["price_month", "14", "subscription"]);
+});
+
+test("per-site plan: allows up to the ceiling and keeps the subscription's quantity at the number of apps", async () => {
+  const { PLAN_AMOUNTS, matchSites } = await import("../grove/src/billing.ts");
+  const plan = await planFor(fakePool([{ customer: "cus_1", status: "active", per_site: true }]), "a@b.c");
+  assert.deepEqual([plan.apps, plan.included], [200, 10]);
+  const pool = { query: async (sql: string) => ({ rows: sql.includes("from plans") ? [{ subscription: "sub_1", status: "active", per_site: true }] : [{ n: 12 }] }) } as any;
+  stripeAnswers({ "/subscriptions/sub_1": { items: { data: [{ id: "si_1", quantity: 10, price: { lookup_key: PLAN_AMOUNTS.month.lookup } }] } }, "/subscription_items/si_1": {} });
+  assert.equal(await matchSites(pool, "a@b.c"), 12);
+  const sent = new URLSearchParams(calls.find((c) => c.path === "/subscription_items/si_1")!.body);
+  assert.deepEqual([sent.get("quantity"), sent.get("proration_behavior")], ["12", "create_prorations"]);
+  calls = [];
+  stripeAnswers({ "/subscriptions/sub_1": { items: { data: [{ id: "si_1", quantity: 12, price: { lookup_key: PLAN_AMOUNTS.month.lookup } }] } } });
+  await matchSites(pool, "a@b.c");
+  assert.equal(calls.filter((c) => c.method === "POST").length, 0, "nothing to change");
+  const flat = { query: async () => ({ rows: [{ subscription: "sub_1", status: "active", per_site: false }] }) } as any;
+  assert.equal(await matchSites(flat, "a@b.c"), undefined, "the old flat plan is left alone");
 });
 
 test("webhook event: a new subscription to our plan is recorded against the person's email", async () => {
@@ -108,7 +147,7 @@ test("webhook event: a new subscription to our plan is recorded against the pers
   const pool = fakePool();
   await onEvent(pool, { type: "customer.subscription.created", data: { object: { id: "sub_1" } } });
   assert.equal(pool.asked.length, 1);
-  assert.deepEqual(pool.asked[0].args, ["ana@example.com", "cus_1", "sub_1", "active"]);
+  assert.deepEqual(pool.asked[0].args, ["ana@example.com", "cus_1", "sub_1", "active", false]);
 });
 
 test("webhook event: the status is read fresh from Stripe, not trusted from the event", async () => {
@@ -122,7 +161,7 @@ test("webhook event: a finished checkout is recorded, using its reference when t
   stripeAnswers({ "/subscriptions/sub_2": { id: "sub_2", customer: "cus_2", status: "active", metadata: {}, items: { data: [{ price: { id: "price_ours" } }] } } });
   const pool = fakePool();
   await onEvent(pool, { type: "checkout.session.completed", data: { object: { mode: "subscription", subscription: "sub_2", client_reference_id: "tom@example.com" } } });
-  assert.deepEqual(pool.asked[0].args, ["tom@example.com", "cus_2", "sub_2", "active"]);
+  assert.deepEqual(pool.asked[0].args, ["tom@example.com", "cus_2", "sub_2", "active", false]);
 });
 
 test("webhook event: other products, other event types and one-off payments change nothing", async () => {
@@ -140,7 +179,7 @@ test("checkout: asks Stripe for a subscription page for this person and returns 
   assert.equal(await checkout("a@b.c", "https://grove.example"), "https://checkout.stripe.com/c/pay/cs_test_1");
   const sent = new URLSearchParams(calls[0].body);
   assert.equal(sent.get("mode"), "subscription");
-  assert.equal(sent.get("line_items[0][price]"), (await thePrice()).id, "the plan's own price, in every currency it is sold in");
+  assert.equal(sent.get("line_items[0][price]"), await thePrice(), "the plan's own price");
   assert.equal(sent.get("customer_email"), "a@b.c");
   assert.equal(sent.get("subscription_data[metadata][email]"), "a@b.c");
   assert.equal(sent.get("success_url"), "https://grove.example/account?paid=1");

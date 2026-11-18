@@ -5,7 +5,7 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import manifest from "../maple.json" with { type: "json" };
 import { createMapleApp, z, type Ctx, type Manifest } from "../../kit/kit.ts";
-import { BILLING_SCHEMA, billingOn, checkout, onEvent, planFor, portal, priceText, thePrice, verified, FREE, FREE_MAX, PAID, askForMore } from "./billing.ts";
+import { BILLING_SCHEMA, billingOn, checkout, onEvent, planFor, planPrices, portal, priceText, extraText, verified, FREE, FREE_MAX, PAID, askForMore, matchSites } from "./billing.ts";
 import { BuildError, bundle, check, upload, zip, type Files } from "./build.ts";
 import { Client } from "pg";
 import { capCompute, connectionUri, createBranch, createProject, deleteBranch, deleteProject, registerDomain, setUpSignIn } from "./neon.ts";
@@ -25,6 +25,9 @@ import { shell } from "./site.ts";
 import { importTools, runImports } from "./tools-import.ts";
 import { adminTools } from "./tools-admin.ts";
 import { DOMAINS_SCHEMA, domainTools } from "./tools-domains.ts";
+import { TOKENS_SCHEMA, tokenEmail, tokenTools } from "./tokens.ts";
+import { PROSPECTS_SCHEMA, expire as expirePreviews } from "./prospects.ts";
+import { prospectRoutes, prospectTools } from "./tools-prospects.ts";
 import { PAYMENTS_SCHEMA, PaymentError, accountFor, checkout as realCheckout, connect as connectStripe, onConnectEvent, paymentsOn, refresh as refreshPayments, status as realStatus } from "./payments.ts";
 import { backLinks, paymentTools } from "./tools-payments.ts";
 import { watchErrors } from "./errors.ts";
@@ -49,7 +52,7 @@ create table if not exists changes (
   app text not null, name text not null, version bigint not null, base bigint not null, branch_id text, url text,
   updated_at timestamptz not null default now(), primary key (app, name));
 create table if not exists waitlist (
-  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}${GUARD_SCHEMA}${METER_SCHEMA}${SERVICES_SCHEMA}${UPKEEP_SCHEMA}${OWNER_SCHEMA}${SAFETY_SCHEMA}${DOMAINS_SCHEMA}${PAYMENTS_SCHEMA}`;
+  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}${GUARD_SCHEMA}${METER_SCHEMA}${SERVICES_SCHEMA}${UPKEEP_SCHEMA}${OWNER_SCHEMA}${SAFETY_SCHEMA}${DOMAINS_SCHEMA}${PAYMENTS_SCHEMA}${PROSPECTS_SCHEMA}${TOKENS_SCHEMA}`;
 
 const DOMAIN = process.env.APPS_DOMAIN;
 
@@ -79,20 +82,17 @@ app: it copies the pages to a trial copy. It only goes live once verify_site sho
 import sites they run. Forms and plugins become features to rebuild. import_data turns a CSV export (Airtable, Sheets,
 a CRM, a form tool) into a table.`;
 
-// The paid plan as the site shows it: read from Stripe now and then, so the page itself never waits on Stripe.
-let paid: PaidPlan | undefined, paidAt = 0;
-function paidPlan() {
-  if (billingOn() && Date.now() - paidAt > 3_600_000) {
-    paidAt = Date.now();
-    thePrice()
-      .then((p) => (paid = { price: `${Object.values(p.prices)[0]} a ${p.interval}`, apps: PAID(), prices: Object.fromEntries(Object.entries(p.prices).map(([c, a]) => [c, `${a} a ${p.interval}`])) }))
-      .catch(() => (paidAt = 0));
-  }
-  return paid;
+// The paid plan as the site shows it.
+function paidPlan(): PaidPlan | undefined {
+  if (!billingOn()) return;
+  const p = planPrices(), [c] = Object.keys(p.month);
+  const each = (i: "month" | "year", k: "base" | "extra") => Object.fromEntries(Object.entries(p[i]).map(([cur, v]) => [cur, v[k]]));
+  return { price: p.month[c].base, apps: p.included, prices: each("month", "base"), extra: p.month[c].extra, extras: each("month", "extra"), yearly: p.year[c].base, yearlies: each("year", "base") };
 }
-paidPlan();
+/** Keeps the maker's per-site subscription in step with how many apps they have, without holding up the reply. */
+const sitesChanged = (...emails: string[]) => waitUntil(Promise.all(emails.map((e) => matchSites(pool, e))).catch((e) => console.error("matching sites to the plan:", e)));
 
-const { app, pool, init, email, site } = createMapleApp({ manifest: { ...(manifest as Manifest), auth: { ...manifest.auth, open: manifest.auth.open && !process.env.GROVE_INVITE_ONLY } }, slug: "grove", schema, guide, tools, routes, home: ({ mcpUrl }) => sitePage(mcpUrl, FREE(), paidPlan(), process.env.GROVE_REPO_URL, FREE_MAX()) });
+const { app, pool, init, email, site } = createMapleApp({ manifest: { ...(manifest as Manifest), auth: { ...manifest.auth, open: manifest.auth.open && !process.env.GROVE_INVITE_ONLY } }, slug: "grove", schema, guide, tools, routes, home: ({ mcpUrl }) => sitePage(mcpUrl, FREE(), paidPlan(), process.env.GROVE_REPO_URL, FREE_MAX()), token: async (t) => (await init(), tokenEmail(pool, t)) });
 
 // Failures go to Sentry as well as the log, when SENTRY_DSN is set.
 watchErrors("grove", waitUntil);
@@ -366,7 +366,7 @@ function tools(server: McpServer, ctx: Ctx) {
     {
       title: "Create an app",
       description:
-        "Creates a new app and puts it live: its own private Postgres tables (on the paid plan, a whole database of its own), email-code sign-in, its own address and a Claude connector, starting from the MAPLE template. The person asking becomes its maker. users are the emails of the people it is for, who can sign in (more can be added later from inside the app). Takes about 20 seconds. Then build the described features with write_files. Confirm the name and who it is for first.",
+        "Creates a new app and puts it live: its own private Postgres tables (on the paid plan, a whole database of its own), email-code sign-in, its own address and a Claude connector, starting from the MAPLE template. The person asking becomes its maker. On the paid plan, each app beyond the ones its price includes adds a small charge (the plan tool says how much): say so before making one. users are the emails of the people it is for, who can sign in (more can be added later from inside the app). Takes about 20 seconds. Then build the described features with write_files. Confirm the name and who it is for first.",
       inputSchema: {
         name: z.string().regex(SLUG).describe("Short lowercase name; it becomes the app's address, e.g. river-rowing-fees"),
         title: z.string().min(2).max(60).describe("Name people see, e.g. 'Club Helper'"),
@@ -419,7 +419,8 @@ function tools(server: McpServer, ctx: Ctx) {
         const a = { slug: name, title, host, neon_project_id: where.project, makers: [person.email] };
         const url = await putUp(a, where.branch, archive, version, DOMAIN && `https://${name}.${DOMAIN}`, true);
         await pool.query("update apps set neon_project_id = $2, branch_id = $3, url = $4, live = $5, status = 'live', host = $6 where slug = $1", [name, where.project, where.branch, url, version, host]);
-        return json({ app: name, status: "starting", address: url, connect: url + "/mcp", next: "The address starts answering within a minute or two; app_status says when. Meanwhile, read AGENTS.md and src/app.ts and start building the features with write_files." });
+        sitesChanged(person.email);
+        return json({ app: name, status: "starting", ...(plan.included && mine >= plan.included && { cost: `This is app ${mine + 1}: the paid plan includes ${plan.included}, so it adds ${extraText()} to the bill.` }), address: url, connect: url + "/mcp", next: "The address starts answering within a minute or two; app_status says when. Meanwhile, read AGENTS.md and src/app.ts and start building the features with write_files." });
       } catch (e) {
         if (made) await deleteProject(made.project).catch(() => {});
         if (host === "runner") await runner.remove(name).catch(() => {});
@@ -467,7 +468,7 @@ function tools(server: McpServer, ctx: Ctx) {
     async () => {
       await init();
       const [p, { rows: [{ n }] }] = await Promise.all([planFor(pool, person.email), pool.query("select count(*)::int n from apps where $1 = any(makers)", [person.email])]);
-      return json({ plan: p.plan, appsAllowed: p.apps, appsMade: n, ...(billingOn() ? p.plan === "free" && { paidPlan: { apps: PAID(), price: await priceText() } } : { note: "There is no paid plan yet." }) });
+      return json({ plan: p.plan, appsAllowed: p.apps, appsMade: n, ...(p.included && { includedInPrice: p.included, price: priceText() }), ...(billingOn() ? p.plan === "free" && { paidPlan: { price: priceText(), note: "Monthly or yearly. The bill grows by the small extra only for sites beyond the included ones." } } : { note: "There is no paid plan yet." }) });
     },
   );
 
@@ -475,16 +476,17 @@ function tools(server: McpServer, ctx: Ctx) {
     "upgrade",
     {
       title: "Move to the paid plan",
-      description: "Gives a link to a secure payment page (Stripe) for Grove's paid plan, which allows more apps. Tell the person the price from the plan tool first. Payment happens on that page, never in the chat: don't ask for card details.",
-      inputSchema: {},
+      description: "Gives a link to a secure payment page (Stripe) for Grove's paid plan, which takes the Grove line off their apps and allows many more. Monthly, or yearly for two months less: ask which. Tell the person the price from the plan tool first, including the small extra for each site beyond the included ones. Payment happens on that page, never in the chat: don't ask for card details.",
+      inputSchema: { yearly: z.boolean().optional().describe("Pay yearly instead of monthly") },
     },
-    async () => {
+    async ({ yearly }) => {
       await init();
       if (!billingOn()) throw new Error("There is no paid plan yet.");
       await mustAgree();
       const p = await planFor(pool, person.email);
       if (p.plan === "paid") throw new Error("Already on the paid plan. manage_billing changes or cancels it.");
-      return json({ payHere: await checkout(person.email, site, p.customer), price: await priceText(), next: "Once paid, the plan tool shows the paid plan within a minute. Apps made from then on get a database of their own; move_to_own_database moves an existing one." });
+      const { rows: [{ n }] } = await pool.query("select count(*)::int n from apps where $1 = any(makers)", [person.email]);
+      return json({ payHere: await checkout(person.email, site, p.customer, yearly ? "year" : "month", n), price: priceText(), billed: yearly ? "yearly" : "monthly", next: "Once paid, the plan tool shows the paid plan within a minute. Apps made from then on get a database of their own; move_to_own_database moves an existing one." });
     },
   );
 
@@ -555,6 +557,8 @@ function tools(server: McpServer, ctx: Ctx) {
   domainTools(server, { pool, ctx, appFor, mustAgree, notPaused });
   paymentTools(server, { pool, ctx, site, sign, appFor, mustAgree, notPaused });
   adminTools(server, { pool, ctx, init, appFor, makerOnly, pause, putUpAgain });
+  prospectTools(server, { pool, ctx, site, sign, init, makerOnly });
+  tokenTools(server, { pool, ctx, init, mustAgree });
   importTools(server, { pool, ctx, site, sign, appFor, init, mustAgree, notPaused, changeName, filesOf, preview, previewAs });
 
 
@@ -800,6 +804,7 @@ function tools(server: McpServer, ctx: Ctx) {
       await pool.query("delete from app_offers where app = $1", [a.slug]);
       // The line free apps carry depends on the maker's plan, so put the app up again under the new one.
       waitUntil(putUpAgain({ ...a, makers: [person.email] }).catch((e) => console.error("after hand-over:", e)));
+      sitesChanged(person.email, ...a.makers);
       return json({ yours: a.slug, address: a.url, from: offer.from_email, note: `${offer.from_email} can still use the app as an ordinary person unless you remove them in the app itself. The app's maple.json still names them as its maker: change the name and email there with your next change.` });
     },
   );
@@ -823,6 +828,7 @@ function tools(server: McpServer, ctx: Ctx) {
       await Promise.allSettled(ups.map((u) => deleteObject(`imports/${slug}/${u.id}`)));
       for (const t of ["changes", "versions", "app_offers", "service_calls", "pretend_payments", "site_imports", "app_domains"]) await pool.query(`delete from ${t} where app = $1`, [slug]);
       await pool.query("delete from apps where slug = $1", [slug]);
+      sitesChanged(...a.makers);
       return json({ deleted: slug });
     },
   );
@@ -851,6 +857,8 @@ function tools(server: McpServer, ctx: Ctx) {
 
 // Apps send their loop emails here, so they never hold an email key. Each app proves itself with its own secret.
 function routes(app: import("hono").Hono<any>) {
+  // Outreach previews: private copies of a business's site, made by Grove's maker (tools-prospects.ts).
+  prospectRoutes(app, { pool: () => pool, site: () => site });
   // The website's invite form. Open to anyone, so it only ever stores an email and a short note, and stops at 200 a day.
   app.get("/terms", (c) => c.html(termsPage()));
   app.get("/privacy", (c) => c.html(privacyPage()));
@@ -1096,6 +1104,12 @@ function routes(app: import("hono").Hono<any>) {
     if (runner.runnerOn()) waitUntil(fetch(`${process.env.RUNNER_URL!.replace(/\/$/, "")}/runner/health`, { signal: AbortSignal.timeout(20_000) }).catch(() => undefined));
     const woken = await wakeDue(pool, appSecret);
     if (await due(pool, "prune")) waitUntil(prune(pool).then((r) => console.log("pruned", JSON.stringify(r)), (e) => console.error("prune failed:", e)));
+    // Outreach previews past their date are emptied; ones whose copying never finished count as failed.
+    if (await due(pool, "previews", "1 hour"))
+      waitUntil((async () => {
+        await expirePreviews(pool);
+        await pool.query("update prospects set status = 'failed', error = 'copying never finished', updated_at = now() where status = 'building' and created_at < now() - interval '15 minutes'");
+      })().catch((e) => console.error("expiring previews:", e)));
     // Imports waiting to start, or cut short when Grove restarted.
     waitUntil(runImports({ pool, site, sign, changeName, filesOf, previewAs }).catch((e) => console.error("running imports:", e)));
     // Once a day, a summary for Grove's makers: the funnel and anything that needs a look.

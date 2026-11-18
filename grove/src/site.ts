@@ -10,10 +10,8 @@ const SCRIPT = `
 // The paid plan's price in the visitor's own currency, guessed from their time zone, which is close to
 // what Stripe's payment page decides from where they are. Without this the default currency shows.
 (() => {
-  const el = document.getElementById("plus-price");
-  if (!el || !el.dataset.prices) return;
-  let prices;
-  try { prices = JSON.parse(el.dataset.prices); } catch { return; }
+  const els = document.querySelectorAll("[data-prices]");
+  if (!els.length) return;
   // No regular expressions here: this text sits in a template string, where their backslashes would vanish.
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
   const [area, city] = zone.split("/");
@@ -24,7 +22,11 @@ const SCRIPT = `
     (area === "Europe" && euro.includes(city)) || (area === "Atlantic" && ["Canary", "Madeira", "Azores"].includes(city)) ? "eur" :
     area === "America" && canada.includes(city) ? "cad" :
     area === "Australia" ? "aud" : "usd";
-  if (prices[want]) el.textContent = prices[want];
+  els.forEach((el) => {
+    let prices;
+    try { prices = JSON.parse(el.dataset.prices); } catch { return; }
+    if (prices[want]) el.textContent = prices[want];
+  });
 })();
 const form = document.getElementById("invite-form");
 const msg = document.getElementById("invite-msg");
@@ -298,7 +300,10 @@ const claudeLink = (connect: string) => `https://claude.ai/customize/connectors?
 const SERVICE_TITLES: Record<string, string> = { email: "Email", payments: "Payments", tasks: "Background work", files: "Files and photos", texts: "Text messages", ai: "AI inside the app", pdf: "PDFs" };
 
 /** The paid plan as shown: its price in the default currency, and in each other currency it is sold in. */
-export type PaidPlan = { price: string; apps: number; prices?: Record<string, string> };
+export type PaidPlan = { price: string; apps: number; prices?: Record<string, string>; extra?: string; extras?: Record<string, string>; yearly?: string; yearlies?: Record<string, string> };
+
+/** A price that the page's script swaps for the visitor's own currency. */
+const priced = (shown: string, all?: Record<string, string>, id?: string) => `<span${id ? ` id="${id}"` : ""}${all ? ` data-prices="${esc(JSON.stringify(all))}"` : ""}>${esc(shown)}</span>`;
 
 /** One line of the conversation in the example at the top: who says it, what, and the step it appears at. */
 const says = (step: number, who: "you" | "app", text: string) =>
@@ -630,17 +635,19 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
           <li>Share each one with the people you choose, or make its pages public</li>
           <li>Trial copies, undo and change requests included</li>
           <li>Take the code and the information away whenever you like</li>
+          <li>One of them on your own domain, such as the site you moved here</li>
           <li>A small "Made with Grove" line on each app's pages</li>
         </ul>
         <p>No card needed. Fair limits apply to each app, so one busy app can't spoil it for everyone.</p>
       </div>
       ${paid ? `<div class="price best">
         <h3>Plus</h3>
-        <p class="big" id="plus-price"${paid.prices ? ` data-prices="${esc(JSON.stringify(paid.prices))}"` : ""}>${esc(paid.price)}</p>
+        <p class="big">${priced(paid.price, paid.prices, "plus-price")}</p>
+        ${paid.yearly ? `<p class="note">or ${priced(paid.yearly, paid.yearlies)}, two months free</p>` : ""}
         <ul>
           <li>Everything in Free</li>
           <li>No Grove line on your apps' pages</li>
-          <li>Up to ${paid.apps} websites and apps</li>
+          <li>${paid.extra ? `${paid.apps} websites and apps included, then ${priced(paid.extra, paid.extras)} for each one after that. Made for people who run sites for clients.` : `Up to ${paid.apps} websites and apps`}</li>
           <li>New apps get a database of their own, with no monthly cap</li>
           <li>Ten times the email, and far more room for files</li>
           <li>Background work as often as every 15 minutes</li>
