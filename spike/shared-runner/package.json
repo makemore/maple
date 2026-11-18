@@ -1,0 +1,8 @@
+{
+  "name": "grove-shared-runner-spike",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "miniflare": "^4.20260730.0"
+  }
+}
