@@ -6,7 +6,8 @@ export const honoMcpBearerAuth = (auth) => {
     const token = (c.req.header("authorization") ?? "").replace(/^Bearer /i, "");
     try {
       const { payload } = await jwtVerify(token, keys, { issuer: auth.issuer, audience: auth.resource });
-      c.set("auth", { sub: payload.sub });
+      // The shared sign-in service puts the email it verified in the token, so the app never looks anyone up.
+      c.set("auth", { sub: payload.sub, verifiedEmail: payload.email_verified ? payload.email : undefined });
     } catch {
       return c.json({ error: "invalid_token" }, 401, { "WWW-Authenticate": `Bearer resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", auth.resource)}"` });
     }

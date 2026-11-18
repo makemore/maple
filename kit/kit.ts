@@ -113,11 +113,15 @@ export function createMapleApp(def: AppDef) {
 
   // A valid sign-in alone proves nothing (anyone can make an account): the verified email must be
   // on the people list, or end in one of the allowed domains.
-  async function personFor(userId: string | undefined): Promise<Person | null> {
+  // Where the email comes from depends on the host. On Neon, the sign-in service keeps people in this
+  // app's own database. A host that shares one sign-in service between many apps hands over the email
+  // it has already verified (auth.verifiedEmail), so no app ever reads the list of everyone.
+  async function personFor(userId: string | undefined, verifiedEmail?: string): Promise<Person | null> {
     if (!userId) return null;
     await init();
-    const { rows } = await pool.query(`select lower(email) email from neon_auth."user" where id::text = $1 and "emailVerified"`, [userId]);
-    const email: string | undefined = rows[0]?.email;
+    const email: string | undefined = verifiedEmail
+      ? verifiedEmail.toLowerCase()
+      : (await pool.query(`select lower(email) email from neon_auth."user" where id::text = $1 and "emailVerified"`, [userId])).rows[0]?.email;
     if (!email) return null;
     const { rows: [p] } = await pool.query("select email, role from maple_people where email = $1", [email]);
     if (p) return p;
@@ -391,7 +395,8 @@ export function createMapleApp(def: AppDef) {
       return next();
     }
     return oauth(c, async () => {
-      const person = await personFor(c.get("auth").sub);
+      const auth = c.get("auth") as { sub?: string; verifiedEmail?: string };
+      const person = await personFor(auth.sub, auth.verifiedEmail);
       if (!person) {
         c.res = c.text(`This account is not allowed to use ${title}. Ask ${makerName} to add you.`, 403);
         return;

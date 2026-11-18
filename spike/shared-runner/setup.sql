@@ -13,12 +13,4 @@ do $$ begin
     execute format('alter role app_%s connection limit 5', chr(96 + i));
   end loop;
 end $$;
--- A stand-in for the one sign-in service every free app would share.
-drop schema if exists neon_auth cascade;
-create schema neon_auth;
-create table neon_auth."user" (id text primary key, email text not null, "emailVerified" boolean not null default true);
-insert into neon_auth."user" values ('user-1', 'maker@example.com'), ('user-2', 'other@example.com');
--- FINDING: the kit looks people up by reading this table, so every app would see every person's email.
--- For the real thing the kit should take the email from the signed token instead. Here: a narrow function.
-grant usage on schema neon_auth to app_a, app_b;
-grant select on neon_auth."user" to app_a, app_b;
+-- Apps get nothing from the sign-in service: the email arrives already verified, in the signed token.

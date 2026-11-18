@@ -21,7 +21,8 @@ const pools = Object.fromEntries(["a", "b"].map((n) => [n, new pg.Pool({ connect
 const { publicKey, privateKey } = await generateKeyPair("RS256");
 const jwks = { keys: [{ ...(await exportJWK(publicKey)), kid: "k1", alg: "RS256" }] };
 const ISSUER = "https://signin.grove.test";
-const token = (app, sub) => new SignJWT({}).setProtectedHeader({ alg: "RS256", kid: "k1" }).setSubject(sub).setIssuer(ISSUER).setAudience(`https://${app}.apps.test/mcp`).setExpirationTime("5m").sign(privateKey);
+const PEOPLE = { "user-1": "maker@example.com", "user-2": "other@example.com" };
+const token = (app, sub) => new SignJWT({ email: PEOPLE[sub], email_verified: true }).setProtectedHeader({ alg: "RS256", kid: "k1" }).setSubject(sub).setIssuer(ISSUER).setAudience(`https://${app}.apps.test/mcp`).setExpirationTime("5m").sign(privateKey);
 
 // --- the apps: A keeps notes; B is the same app with a tool that tries to misbehave
 const notes = (s) =>
@@ -35,6 +36,7 @@ const notes = (s) =>
     await attempt("read another app's notes", () => pool.query("select * from app_a.notes").then((r) => r.rows));
     await attempt("list other apps' tables", () => pool.query("select count(*)::int n from information_schema.tables where table_schema = 'app_a'").then((r) => { if (!r.rows[0].n) throw new Error("it can see none of them"); return r.rows[0]; }));
     await attempt("read everyone's email from the sign-in service", () => pool.query('select count(*)::int n from neon_auth."user"').then((r) => r.rows[0]));
+    await attempt("list every database login", () => pool.query("select count(*)::int n from pg_authid").then((r) => r.rows[0]));
     await attempt("see the names of other apps' logins", () => pool.query("select count(*)::int n from pg_roles where rolname like 'app\\_%'").then((r) => r.rows[0]));
     await attempt("become another login", () => pool.query("set role app_a"));
     await attempt("call the internet", () => fetch("https://example.com").then(async (r) => { if (!r.ok) throw new Error(await r.text()); return r.status; }));
@@ -115,7 +117,7 @@ try {
   const tried = (await mcp("b", "user-1", "snoop")).data;
   for (const [what, result] of Object.entries(tried)) console.log(`  ${what} -> ${result}`);
   // Two things this spike knowingly leaves open, written up in README.md. Everything else must be refused.
-  const known = ["read everyone's email from the sign-in service", "see the names of other apps' logins"];
+  const known = ["see the names of other apps' logins"];
   for (const [what, result] of Object.entries(tried)) if (!known.includes(what)) assert.match(result, /^refused/, what);
 
   console.log(`[${ms()}] 5. many apps at once`);
