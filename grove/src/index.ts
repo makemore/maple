@@ -1018,6 +1018,8 @@ function routes(app: import("hono").Hono<any>) {
     const parsed = await parseTriggerDelivery(c.req.raw);
     if (!parsed.ok) return c.text(parsed.error, parsed.error === "invalid_body" ? 400 : 401);
     await init();
+    // Keeps Grove's runner awake, so the first visitor after a quiet spell doesn't wait for it to start (about seven seconds, measured).
+    if (runner.runnerOn()) waitUntil(fetch(`${process.env.RUNNER_URL!.replace(/\/$/, "")}/runner/health`, { signal: AbortSignal.timeout(20_000) }).catch(() => undefined));
     const woken = await wakeDue(pool, appSecret);
     if (await due(pool, "prune")) waitUntil(prune(pool).then((r) => console.log("pruned", JSON.stringify(r)), (e) => console.error("prune failed:", e)));
     return c.json({ woken: woken.length, failed: woken.filter((w) => !w.ok).length });
