@@ -7,7 +7,7 @@ its data lives in Postgres. They can ask the maker for changes from the chat (th
 
 | File | What | Change it? |
 |---|---|---|
-| `src/app.ts` | This app's tables (`schema`), what the assistant should know (`guide`), its tools, extra routes | Yes: features go here |
+| `src/app.ts` | This app's tables (`schema`), what the assistant should know (`guide`), its tools, its web pages and routes | Yes: features go here |
 | `src/*.ts` | More of the app's own code, if `app.ts` gets long | Yes |
 | `maple.json` | Name, maker, who can sign in, description | Description and title, yes |
 | `neon.ts` | Settings for deploying this app yourself with Neon's tools | Rarely |
@@ -44,6 +44,23 @@ export function tools(server: McpServer, { pool, person, json }: Ctx) {
   });
 }
 ```
+
+## Web pages
+
+The app can be a website too. In `src/app.ts`:
+
+- `home`: set it to a function returning a whole HTML page and it becomes the public front page
+  at `/`. The signed-in page then moves to `/account`.
+- `routes(app, pool)`: add pages and endpoints on the Hono `app`, such as
+  `app.get("/menu", async (c) => c.html(page(await pool.query(...))))` or a form's
+  `app.post("/sign-up", ...)`.
+
+Anyone on the internet can open a path unless it starts with `/api/`, which needs sign-in. So a
+public page shows only what the maker wants public, and a public form checks and limits what it
+accepts (lengths, required fields, how many rows it will take). Escape everything from the
+database or from a visitor before putting it in HTML. Write plain HTML and CSS in the page itself:
+no build step, no outside scripts needed. Don't use `/`, `/account`, `/auth/`, `/mcp` or
+`/.well-known/`: the kit owns them.
 
 ## Checks and deploys
 

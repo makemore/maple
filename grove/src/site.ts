@@ -144,7 +144,7 @@ section { padding-block: clamp(3rem, 8vw, 5.5rem); }
 .stage.live .talk { flex: 1; min-height: 0; overflow: hidden; }
 .stage.live .pane { height: 24rem; }
 .stage.live .pane + .pane { height: auto; min-height: 34rem; }
-@media (min-width: 56rem) { .stage.live .pane, .stage.live .pane + .pane { height: 42rem; min-height: 0; } }
+@media (min-width: 56rem) { .stage.live .pane, .stage.live .pane + .pane { height: 46rem; min-height: 0; } }
 .talk p { margin: 0; padding: .65rem .95rem; border-radius: 1.1rem; max-width: 92%; font-size: .98rem; line-height: 1.45; flex-shrink: 0; }
 .talk .who { display: block; font-size: .75rem; font-weight: 700; color: var(--soft); }
 .talk .you { background: var(--tint); align-self: flex-end; border-bottom-right-radius: .3rem; }
@@ -172,7 +172,7 @@ section { padding-block: clamp(3rem, 8vw, 5.5rem); }
   .stage.live [data-step] { animation: arrive .45s ease-out; }
   @keyframes arrive { from { opacity: 0; transform: translateY(.5rem); } }
 }
-.inside { list-style: none; margin: 0 0 clamp(2rem, 5vw, 3rem); padding: 0; display: grid; gap: 1.25rem 2rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+.inside { list-style: none; margin: 0 0 clamp(2rem, 5vw, 3rem); padding: 0; display: grid; gap: 1.25rem 2rem; grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr)); }
 .inside strong { display: block; font-family: ui-rounded, system-ui, sans-serif; font-size: 1.15rem; }
 .inside span { color: var(--soft); font-size: 1rem; }
 
@@ -292,10 +292,10 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Grove: little apps you make by asking</title>
-<meta name="description" content="Describe a job in a sentence and Grove makes a small app for it that you use inside Claude or ChatGPT. Its own database, sign-in for your people, real code you can take away.">
-<meta property="og:title" content="Grove: little apps you make by asking">
-<meta property="og:description" content="Describe a job in a sentence. Get a small app you use inside your AI assistant, with its own database and sign-in for your people.">
+<title>Grove: websites and apps you make by asking</title>
+<meta name="description" content="Describe what you need in a sentence and Grove makes a website or app for it, from inside Claude or ChatGPT. Its own database, web pages, sign-in for your people, real code you can take away.">
+<meta property="og:title" content="Grove: websites and apps you make by asking">
+<meta property="og:description" content="Describe what you need in a sentence. Get a website or app with its own database, web pages and sign-in for your people, made from inside your AI assistant.">
 <meta property="og:type" content="website">
 <link rel="icon" type="image/svg+xml" href="/icon.svg">
 <meta name="theme-color" content="#1f5135">
@@ -322,9 +322,9 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
 
 <main id="main">
   <section class="wrap hero">
-    <p class="kicker">Apps without the app</p>
-    <h1>Say what you need. Get a little app that does it.</h1>
-    <p class="lede">Grove turns a conversation with Claude, ChatGPT or any AI assistant into a real working app: its own database, its own tools, sign-in for your people. You never write code or learn a screen.</p>
+    <p class="kicker">Websites and apps, made by asking</p>
+    <h1>Say what you need. Get a website or app that does it.</h1>
+    <p class="lede">Grove turns a conversation with Claude, ChatGPT or any AI assistant into a real working website or app: its own database, its own pages and tools, sign-in for your people. You never write code.</p>
     <div class="actions">
       <a class="btn" href="#invite">Ask for an invite</a>
       <a class="btn quiet" href="#how">See how it works</a>
@@ -349,7 +349,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
             ${says(1, "app", "I'll build that with Grove. Setting up the database and the tools now.")}
             ${says(3, "app", "Done. Roastery Helper is live, with 5 linked tables and 6 tools. Who should be able to use it?")}
             ${says(4, "you", "Me and Dana. Also, orders come in from our website.")}
-            ${says(5, "app", "I've added a web address your website can send orders to. It's on a trial copy with a copy of your data, so nothing live has changed. Want to try it?")}
+            ${says(5, "app", "I've added a web address your website can send orders to, and a public page for trade customers. It's on a trial copy with a copy of your data, so nothing live has changed. Want to try it?")}
             ${says(6, "you", "It works. Make it live.")}
             ${says(7, "app", "It's live. If you change your mind, I can undo it.")}
             ${says(8, "you", "What should we roast this week?")}
@@ -379,10 +379,11 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
               <ul class="chips"><li>add_order</li><li>roast_plan</li><li>whats_low</li><li>unpaid_orders</li><li>customer_history</li><li>ask_the_maker</li></ul>
             </div>
             <div class="box" data-step="5">
-              <p class="label">Web addresses <small>an API other software can call</small></p>
+              <p class="label">Web addresses <small>pages for people, an API for other software</small></p>
               <ul class="routes">
                 <li><code>POST /hooks/website-order</code><span class="tag passing" data-step="5" data-until="6">trial copy</span><span class="tag go" data-step="6">live</span></li>
                 <li><code>GET /api/stock</code>signed-in only</li>
+                <li><code>GET /wholesale</code>a public page</li>
               </ul>
             </div>
             <p class="reads" data-step="9">Answered from four linked tables: orders, order_items, products and stock.</p>
@@ -394,14 +395,15 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
     <ul class="inside">
       <li><strong>A real database</strong><span>Proper Postgres, with as many linked tables as the job needs. Not a spreadsheet behind a chat.</span></li>
       <li><strong>Its own tools</strong><span>Each app is an MCP server made for that one job, which any assistant that speaks MCP can use.</span></li>
-      <li><strong>An API when you need one</strong><span>Web addresses other software can call, so your site, forms and other tools can feed it.</span></li>
+      <li><strong>Web pages</strong><span>A front page, a form, a list that fills itself from the database. Public, or only for the people you name.</span></li>
+      <li><strong>An API when you need one</strong><span>Web addresses other software can call, so your other tools can feed it.</span></li>
     </ul>
   </div>
 
   <div class="wrap">
     <ul class="facts">
-      <li><strong>About 20 seconds</strong><span>from your sentence to a live app</span></li>
-      <li><strong>Its own database</strong><span>one per app, private to it</span></li>
+      <li><strong>About 20 seconds</strong><span>from your sentence to something live</span></li>
+      <li><strong>Its own database</strong><span>one per website or app, private to it</span></li>
       <li><strong>Real code you can keep</strong><span>download it whenever you like</span></li>
       <li><strong>Free for ${free} apps</strong><span>no card needed</span></li>
     </ul>
@@ -410,10 +412,10 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
   <section class="wrap" id="how">
     <p class="kicker">How it works</p>
     <h2>Three steps, all of them in a chat</h2>
-    <p class="intro">You add Grove to your AI assistant once. After that, making an app is a conversation.</p>
+    <p class="intro">You add Grove to your AI assistant once. After that, making a website or an app is a conversation.</p>
     <ol class="cards steps">
-      <li><h3>Say what you need</h3><p>Describe the job the way you'd tell a person: what to keep track of, and who it's for. A sentence or two is enough.</p></li>
-      <li><h3>Grove makes it</h3><p>You get a real app with its own database and its own address. Each person you name can sign in to it and use it from their own assistant.</p></li>
+      <li><h3>Say what you need</h3><p>Describe the job the way you'd tell a person: what it should show or keep track of, and who it's for. A sentence or two is enough.</p></li>
+      <li><h3>Grove makes it</h3><p>You get a real website or app with its own database and its own address. Anyone can visit the pages you make public, and each person you name can sign in and use it from their own assistant.</p></li>
       <li><h3>Use it, and grow it</h3><p>Ask it questions and tell it things. When you want more, say so. Every change is tried on a copy first, and can be undone after.</p></li>
     </ol>
   </section>
@@ -422,12 +424,12 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
     <div class="wrap">
       <p class="kicker">What people make</p>
       <h2>The jobs nobody builds software for</h2>
-      <p class="intro">Too small for a software project, too awkward for a spreadsheet. Anything that is mostly "remember this, and tell me when I ask".</p>
+      <p class="intro">Too small for a software project, too awkward for a spreadsheet. A simple website, a helper you talk to, or both at once on the same database.</p>
       <ul class="cards">
         <li><h3>A shop helper</h3><p class="say">"What's running low, and what did we sell most of this week?"</p><p>Stock, reorders and sales notes.</p></li>
-        <li><h3>A club helper</h3><p class="say">"Who hasn't paid for spring? Write them a reminder."</p><p>Members, fees and who needs a nudge.</p></li>
+        <li><h3>A club website</h3><p class="say">"Who hasn't paid for spring? Write them a reminder."</p><p>Fixtures and a sign-up form for everyone; members and fees for you.</p></li>
         <li><h3>A team helper</h3><p class="say">"What's due this week, and what's stuck?"</p><p>Jobs, who is on them, and what's blocking them.</p></li>
-        <li><h3>A bookings helper</h3><p class="say">"Who's coming tomorrow, and who hasn't confirmed?"</p><p>Appointments, confirmations and no-shows.</p></li>
+        <li><h3>A bookings website</h3><p class="say">"Who's coming tomorrow, and who hasn't confirmed?"</p><p>A page where customers ask for a slot, and a helper that keeps track of them.</p></li>
         <li><h3>A lettings helper</h3><p class="say">"Which repairs are still open at Mill Street?"</p><p>Properties, tenants, repairs and renewals.</p></li>
         <li><h3>A family helper</h3><p class="say">"When is the car due its MOT, and who's doing school pickup?"</p><p>Dates, chores and things not to forget.</p></li>
       </ul>
@@ -436,6 +438,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
           <h3>A good fit</h3>
           <ul>
             <li>Keeping track of things and asking about them</li>
+            <li>A simple website with a form, a list or a sign-up behind it</li>
             <li>A handful of people who trust each other</li>
             <li>Rules that change as you learn what you need</li>
           </ul>
@@ -443,8 +446,8 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
         <div class="no">
           <h3>Not what it's for</h3>
           <ul>
-            <li>A public website or an online shop front</li>
-            <li>Apps people use by tapping through screens</li>
+            <li>A big online shop, or a busy site with thousands of visitors at once</li>
+            <li>Phone apps you get from an app store</li>
             <li>Card payments, medical records, or anything where a mistake is serious</li>
           </ul>
         </div>
@@ -457,7 +460,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
     <h2>Five parts, already put together</h2>
     <p class="intro">Grove apps are built on MAPLE, an open format named after its five parts. You get all of them from the first minute.</p>
     <ul class="cards">
-      <li><h3><span class="letter">M</span>Lives in your assistant</h3><p>You use the app by chatting. So do the people you share it with, each in their own assistant.</p></li>
+      <li><h3><span class="letter">M</span>Lives in your assistant</h3><p>You make it and run it by chatting. So do the people you share it with, each in their own assistant. Its web pages are there for everyone else.</p></li>
       <li><h3><span class="letter">A</span>Sign-in without passwords</h3><p>A code arrives by email. Only the people you name get in.</p></li>
       <li><h3><span class="letter">P</span>Its own database</h3><p>Your information is kept in a proper database that belongs to that one app.</p></li>
       <li><h3><span class="letter">L</span>A way to ask for more</h3><p>Anyone using the app can ask its maker for a change, right in the chat.</p></li>
@@ -563,7 +566,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
       <h2>Things people ask</h2>
       <div class="faq">
         <details><summary>Do I need to know anything about code?</summary><p>No. You describe what you want and check that the result does it. The code is there if a developer ever needs it, and you never have to look at it.</p></details>
-        <details><summary>Where do I actually use my app?</summary><p>In your assistant's chat, the same place you made it. There's no separate app to install or open. Each app also has a simple web page for signing in.</p></details>
+        <details><summary>Where do I actually use my app?</summary><p>In your assistant's chat, the same place you made it. There's nothing to install. It can also have web pages of its own at its own address: a front page, a form, a list. Those open in any browser.</p></details>
         <details><summary>Who can see my information?</summary><p>Only the people you name for that app, after they sign in with a code sent to their email. Each app's information is kept apart from every other app's. See the <a href="/privacy">privacy page</a> for the detail.</p></details>
         <details><summary>Does it use up my Claude or ChatGPT allowance?</summary><p>Yes. Making and changing apps is work your assistant does, so it counts against your plan with them. Using an app is light; building one is heavier. Grove keeps count, tells you how big a job is, and stops to ask before a day's work gets large.</p></details>
         <details><summary>What if Grove gets something wrong?</summary><p>It will sometimes. That's why every change goes to a trial copy first and can be undone after. Check that an app does what you meant before you rely on it.</p></details>

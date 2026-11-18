@@ -1,6 +1,7 @@
 // This app's own features: its tables, what the assistant should know, and its tools.
 // See AGENTS.md for how to add a feature.
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { Hono } from "hono";
 import type { Pool } from "pg";
 import manifest from "../maple.json" with { type: "json" };
 import { z, type Ctx } from "./maple/kit.ts";
@@ -26,5 +27,8 @@ export function tools(server: McpServer, { json }: Ctx) {
   void z;
 }
 
-/** Extra web routes, if any. Paths under /api/ require sign-in. */
-export function routes(_app: unknown, _pool: Pool) {}
+/** Web pages and other routes, if any. Paths under /api/ require sign-in; everything else is public. See AGENTS.md. */
+export function routes(_app: Hono, _pool: Pool) {}
+
+/** The front page at "/", as HTML, for a public website. Left undefined, "/" is the sign-in page. */
+export const home: ((info: { title: string; site: string; mcpUrl: string }) => string) | undefined = undefined;
