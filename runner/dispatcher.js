@@ -11,6 +11,8 @@ export class Outbound extends WorkerEntrypoint {
     if (url.hostname === "db.runner") return this.env.DBGW.fetch("http://gateway/query", { method: "POST", headers: { "x-app": app }, body: await request.text() });
     // And the sign-in service's public keys, to check a token.
     if (url.hostname === "signin.runner") return this.env.SIGNIN.fetch("http://signin/jwks");
+    // Grove's own services for apps (email, files, and saying when a background job is due).
+    if (this.env.GROVE_ORIGIN && url.origin === this.env.GROVE_ORIGIN && (url.pathname.startsWith("/services/") || url.pathname === "/api/notify")) return fetch(request);
     return new Response("This app can't reach the internet.", { status: 403 });
   }
 }
@@ -31,6 +33,8 @@ export default {
         modules: { "index.js": code },
         env: appEnv,
         globalOutbound: ctx.exports.Outbound({ props: { app } }),
+        // How much processor time one request may use before it is stopped.
+        limits: { cpuMs: Number(env.CPU_MS) || 2000 },
       };
     });
     return worker.getEntrypoint().fetch(request);

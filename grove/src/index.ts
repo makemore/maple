@@ -18,6 +18,7 @@ import { sitePage, type PaidPlan } from "./site.ts";
 import { CHANGE, MAX_FILE, RESERVED, SLUG, applyWrites, diff, merge, tooBig, withKit } from "./code.ts";
 import { TEMPLATE } from "./template-files.ts";
 import { UPKEEP_SCHEMA, due, prune } from "./upkeep.ts";
+import * as runner from "./runner.ts";
 import { getObject } from "./storage.ts";
 import { SERVICES, SERVICES_SCHEMA, ServiceError, appEmailsPerDay, checkEmail, footer, fromName, known, pretend, pretendCheckout, pretendPayPage, pretendStatus, removeFile, removeFilesOf, sendMail, wakeAt, wakeDue, whoGets, filesOn, keepFile, linkFile, linkGood, fileKey } from "./services.ts";
 
@@ -28,6 +29,7 @@ create table if not exists apps (
   users text[] not null default '{}', neon_project_id text, url text, secret_hash text not null,
   status text not null default 'creating', error text, created_at timestamptz not null default now());
 alter table apps add column if not exists branch_id text;
+alter table apps add column if not exists host text not null default 'neon';
 alter table apps add column if not exists live bigint;
 create table if not exists versions (
   id bigserial primary key, app text not null, files jsonb not null, message text not null, author text not null,
@@ -112,8 +114,12 @@ async function built(files: Files) {
   if (b.status === "rejected" && !(b.reason instanceof BuildError)) throw b.reason;
   const problems = [...new Set([...c.value, ...(b.status === "rejected" ? (b.reason as BuildError).problems : [])])];
   if (problems.length || b.status === "rejected") throw new Error(`The code has problems, so nothing was saved or deployed. Fix these and try again:\n${problems.slice(0, 40).join("\n")}`);
+  SOURCE.set(b.value, files);
   return b.value;
 }
+/** The files a built version came from. Grove's runner builds from these itself, with its own stand-ins for the host. */
+const SOURCE = new WeakMap<object, Files>();
+const onRunner = (a: any) => a.host === "runner";
 
 /** What a free app gets: database hours a month, and how often a repeating job may run. Both keep the cost of free apps known. */
 const FREE_CU_HOURS = Number(process.env.FREE_APP_CU_HOURS ?? 20), FREE_JOB_HOURS = Number(process.env.FREE_APP_JOB_HOURS ?? 6);
@@ -123,6 +129,13 @@ async function putUp(a: any, branch: string, archive: Record<string, string>, ve
   // Free apps carry a line about Grove at the foot of their pages; the paid plan takes it off.
   const free = (await planFor(pool, a.makers[0])).plan === "free";
   const env = { GROVE_URL: site, GROVE_APP_SECRET: appSecret(a.slug), MAPLE_COMMIT: String(version), ...(publicUrl ? { PUBLIC_URL: publicUrl } : { GROVE_TRIAL: "1" }), ...(free && { GROVE_BADGE: a.slug, MAPLE_MIN_JOB_HOURS: String(FREE_JOB_HOURS) }) };
+  // On Grove's runner the "branch" is the name the code runs under: the app's own, or a trial copy's.
+  if (onRunner(a)) {
+    const name = branch === "live" ? a.slug : branch;
+    const { PUBLIC_URL: _set, ...rest } = env as Record<string, string>;
+    await runner.put(name, SOURCE.get(archive)!, rest, name === a.slug ? (a.title ?? a.slug) : `${a.title ?? a.slug} (trial copy)`);
+    return runner.addressOf(name);
+  }
   // A free app's database gets a monthly allowance; the paid plan has none. Failing to set it doesn't stop the app going up.
   await capCompute(a.neon_project_id, free ? FREE_CU_HOURS : 0).catch((e: Error) => console.error(`compute cap for ${a.slug} not set:`, e.message));
   const { address } = await upload({ key: process.env.NEON_API_KEY!, project: a.neon_project_id, branch }, archive, env);
@@ -134,6 +147,9 @@ async function putUp(a: any, branch: string, archive: Record<string, string>, ve
   await setUpSignIn(a.neon_project_id, branch, url, { name: fromName(a.title ?? a.slug), email: `grove@${new URL(site).host}` });
   return url;
 }
+
+/** Removes a trial copy: a database branch at Neon, or an app of its own on Grove's runner. */
+const dropTrial = (a: any, branch: string) => (onRunner(a) ? runner.remove(branch) : deleteBranch(a.neon_project_id, branch));
 
 /** Whether the address is already answering with this version (Neon can take a minute or two to switch). */
 const serving = (url: string, version: string | number) =>
@@ -230,7 +246,9 @@ function tools(server: McpServer, ctx: Ctx) {
     const archive = await built(files);
     const version = await save(a.slug, files, message, person.email);
     for (const c of concerns(files)) await report(pool, a.slug, c, "Grove check");
-    const branch = ch?.branch_id ?? (await createBranch(a.neon_project_id, `preview-${change}`, a.branch_id));
+    let branch = ch?.branch_id;
+    if (!branch && onRunner(a)) await runner.copy(a.slug, (branch = runner.trialName(a.slug, change)));
+    branch ??= await createBranch(a.neon_project_id, `preview-${change}`, a.branch_id);
     await pool.query(
       "insert into changes (app, name, version, base, branch_id) values ($1, $2, $3, $4, $5) on conflict (app, name) do update set version = $3, branch_id = $5, updated_at = now()",
       [a.slug, change, version, a.live, branch],
@@ -249,7 +267,8 @@ function tools(server: McpServer, ctx: Ctx) {
     await pool.query("update apps set paused_at = now(), paused_why = $2 where slug = $1", [a.slug, why]);
     const { rows } = await pool.query("select branch_id from changes where app = $1 and branch_id is not null", [a.slug]);
     for (const branch of [a.branch_id, ...rows.map((r) => r.branch_id)])
-      await upload({ key: process.env.NEON_API_KEY!, project: a.neon_project_id, branch }, pausedArchive(a.title, site), { MAPLE_COMMIT: "paused" });
+      if (onRunner(a)) await runner.pause(branch === "live" ? a.slug : branch, true);
+      else await upload({ key: process.env.NEON_API_KEY!, project: a.neon_project_id, branch }, pausedArchive(a.title, site), { MAPLE_COMMIT: "paused" });
   };
 
   server.registerTool(
@@ -390,11 +409,14 @@ function tools(server: McpServer, ctx: Ctx) {
       await init();
       await mustAgree();
       if (RESERVED.has(name)) throw new Error(`${name} can't be used as a name. Pick another.`);
-      const { rows: [{ mine, total }] } = await pool.query("select count(*) filter (where $1 = any(makers))::int mine, count(*)::int total from apps", [person.email]);
+      if (name.includes("--")) throw new Error("A name can't have two dashes in a row. Pick another.");
+      // Apps on the free plan live on Grove's shared runner; paid ones get a database and address of their own.
+      const { rows: [{ mine, total }] } = await pool.query("select count(*) filter (where $1 = any(makers))::int mine, count(*) filter (where host = 'neon')::int total from apps", [person.email]);
       const plan = await planFor(pool, person.email);
       if (!ctx.isMaker && mine >= plan.apps)
         throw new Error(plan.plan === "free" && billingOn() ? `That's all ${plan.apps} apps on the free plan. The paid plan allows more: the upgrade tool gives a payment link.` : `That's all ${plan.apps} apps on your plan. Ask the Grove maker for more.`);
-      if (total >= Number(process.env.GROVE_MAX_APPS ?? 80)) throw new Error("Grove is full for now. Ask the Grove maker.");
+      const host = runner.runnerOn() && plan.plan === "free" ? "runner" : "neon";
+      if (host === "neon" && total >= Number(process.env.GROVE_MAX_APPS ?? 80)) throw new Error("Grove is full for now. Ask the Grove maker.");
       const taken = await pool.query("insert into apps (slug, title, description, makers, users, secret_hash) values ($1, $2, $3, $4, $5, $6) on conflict do nothing", [name, title, description, [person.email], users.map((u) => u.toLowerCase()), hash(appSecret(name))]);
       if (!taken.rowCount) throw new Error(`There is already an app called ${name}. Pick another name.`);
       const appManifest = {
@@ -412,14 +434,15 @@ function tools(server: McpServer, ctx: Ctx) {
       const files: Files = { ...TEMPLATE, "maple.json": JSON.stringify(appManifest, null, 2) + "\n", "README.md": `# ${title}\n\n${description}\n\nA MAPLE app made with Grove. See AGENTS.md to build on it.\n` };
       let made: { project: string; branch: string } | undefined;
       try {
-        const [archive, where] = await Promise.all([built(files), createProject(name).then((p) => (made = p))]);
+        const [archive, where] = await Promise.all([built(files), host === "runner" ? { project: null, branch: "live" } : createProject(name).then((p) => (made = p))]);
         const version = await save(name, files, `Start ${title} from the MAPLE template`, person.email, true);
-        const a = { slug: name, title, neon_project_id: where.project, makers: [person.email] };
+        const a = { slug: name, title, host, neon_project_id: where.project, makers: [person.email] };
         const url = await putUp(a, where.branch, archive, version, DOMAIN && `https://${name}.${DOMAIN}`, true);
-        await pool.query("update apps set neon_project_id = $2, branch_id = $3, url = $4, live = $5, status = 'live' where slug = $1", [name, where.project, where.branch, url, version]);
+        await pool.query("update apps set neon_project_id = $2, branch_id = $3, url = $4, live = $5, status = 'live', host = $6 where slug = $1", [name, where.project, where.branch, url, version, host]);
         return json({ app: name, status: "starting", address: url, connect: url + "/mcp", next: "The address starts answering within a minute or two; app_status says when. Meanwhile, read AGENTS.md and src/app.ts and start building the features with write_files." });
       } catch (e) {
         if (made) await deleteProject(made.project).catch(() => {});
+        if (host === "runner") await runner.remove(name).catch(() => {});
         await pool.query("delete from versions where app = $1", [name]);
         await pool.query("delete from apps where slug = $1", [name]);
         throw e;
@@ -634,7 +657,7 @@ function tools(server: McpServer, ctx: Ctx) {
       await pool.query("update versions set shipped_at = now(), message = $2 where id = $1", [version, `${change}: ${msg.message}`.slice(0, 600)]);
       await pool.query("update apps set live = $2 where slug = $1", [slug, version]);
       await pool.query("delete from changes where app = $1 and name = $2", [slug, change]);
-      if (ch.branch_id) await deleteBranch(a.neon_project_id, ch.branch_id).catch((e) => console.error("preview not removed:", e));
+      if (ch.branch_id) await dropTrial(a, ch.branch_id).catch((e) => console.error("preview not removed:", e));
       return json({ shipped: change, version, address: a.url, next: `${SWITCH}; app_status says when it is live.` });
     },
   );
@@ -649,7 +672,7 @@ function tools(server: McpServer, ctx: Ctx) {
     async ({ app: slug, change }) => {
       const a = await appFor(ctx, slug);
       const ch = await changeFor(slug, change);
-      if (ch.branch_id) await deleteBranch(a.neon_project_id, ch.branch_id);
+      if (ch.branch_id) await dropTrial(a, ch.branch_id);
       await pool.query("delete from changes where app = $1 and name = $2", [slug, change]);
       return json({ dropped: change });
     },
@@ -718,13 +741,19 @@ function tools(server: McpServer, ctx: Ctx) {
       const [plan, { rows: [{ n }] }] = await Promise.all([planFor(pool, person.email), pool.query("select count(*)::int n from apps where $1 = any(makers)", [person.email])]);
       if (n >= plan.apps) throw new Error(`That would be more than the ${plan.apps} apps on your plan. ${plan.plan === "free" && billingOn() ? "The upgrade tool gives a link to the paid plan." : "Delete one first."}`);
       // The app keeps its own list of people, in its own database: make the new maker one there, and the old makers ordinary users.
-      const db = new Client({ connectionString: await connectionUri(a.neon_project_id, a.branch_id) });
-      await db.connect();
-      try {
-        await db.query("update maple_people set role = 'user' where role = 'maker'");
-        await db.query("insert into maple_people (email, role, added_by) values ($1, 'maker', 'grove') on conflict (email) do update set role = 'maker'", [person.email]);
-      } finally {
-        await db.end();
+      const changes = [
+        { text: "update maple_people set role = 'user' where role = 'maker'" },
+        { text: "insert into maple_people (email, role, added_by) values ($1, 'maker', 'grove') on conflict (email) do update set role = 'maker'", values: [person.email] },
+      ];
+      if (onRunner(a)) await runner.sql(a.slug, changes);
+      else {
+        const db = new Client({ connectionString: await connectionUri(a.neon_project_id, a.branch_id) });
+        await db.connect();
+        try {
+          for (const st of changes) await db.query(st.text, st.values);
+        } finally {
+          await db.end();
+        }
       }
       await pool.query("update apps set makers = $2, users = (select coalesce(array_agg(distinct u), '{}') from unnest(users || makers) u where u <> $3) where slug = $1", [a.slug, [person.email], person.email]);
       await pool.query("delete from app_offers where app = $1", [a.slug]);
@@ -744,7 +773,10 @@ function tools(server: McpServer, ctx: Ctx) {
     async ({ app: slug, confirm }) => {
       const a = await appFor(ctx, slug);
       if (confirm !== slug) throw new Error("confirm must be the app's name, typed by the person.");
-      if (a.neon_project_id) await deleteProject(a.neon_project_id).catch((e) => { if (!/ 404 /.test(String(e))) throw e; });
+      if (onRunner(a)) {
+        const { rows } = await pool.query("select branch_id from changes where app = $1 and branch_id is not null", [slug]);
+        for (const name of [...rows.map((r) => r.branch_id), slug]) await runner.remove(name);
+      } else if (a.neon_project_id) await deleteProject(a.neon_project_id).catch((e) => { if (!/ 404 /.test(String(e))) throw e; });
       await removeFilesOf(pool, slug);
       for (const t of ["changes", "versions", "app_offers", "service_calls", "pretend_payments"]) await pool.query(`delete from ${t} where app = $1`, [slug]);
       await pool.query("delete from apps where slug = $1", [slug]);
@@ -756,7 +788,7 @@ function tools(server: McpServer, ctx: Ctx) {
     "export_app",
     {
       title: "Take an app away",
-      description: "For an app's maker: a link to download the app's shipped code as a zip (an ordinary project that runs anywhere Node and Postgres do; with Neon's tools, 'neon deploy' puts it up on your own account). With database true, also the connection string for the app's live database, to copy the data out with pg_dump. The connection string is a password: only show it when the person asks for their data.",
+      description: "For an app's maker: a link to download the app's shipped code as a zip (an ordinary project that runs anywhere Node and Postgres do; with Neon's tools, 'neon deploy' puts it up on your own account). With database true, also the app's information: either a link to download it as a file that loads into any Postgres database (databaseDownload), or the connection string for the app's own live database, to copy it out with pg_dump. Either one gives away everything in the app: only show it when the person asks for their data.",
       inputSchema: { app: z.string(), database: z.boolean().default(false) },
     },
     async ({ app: slug, database }) => {
@@ -765,7 +797,10 @@ function tools(server: McpServer, ctx: Ctx) {
       return json({
         download: `${site}/export/${slug}.zip?v=${a.live}&until=${until}&sig=${sign(`export:${slug}:${a.live}:${until}`)}`,
         linkWorksFor: "one hour",
-        ...(database && { database: await connectionUri(a.neon_project_id, a.branch_id), databaseNote: "Anyone with this can read and change the app's data. Copy it out with: pg_dump '<connection string>' > data.sql" }),
+        ...(database &&
+          (onRunner(a)
+            ? { databaseDownload: `${site}/export/${slug}.sql?v=data&until=${until}&sig=${sign(`export:${slug}:data:${until}`)}`, databaseNote: "Anyone with this link can read everything in the app for the next hour. The file loads into any Postgres database with: psql '<your database>' < data.sql" }
+            : { database: await connectionUri(a.neon_project_id, a.branch_id), databaseNote: "Anyone with this can read and change the app's data. Copy it out with: pg_dump '<connection string>' > data.sql" })),
       });
     },
   );
@@ -806,10 +841,16 @@ function routes(app: import("hono").Hono<any>) {
 
   // The download link export_app gives out: the app's code as a zip. The link is signed and lasts an hour.
   app.get("/export/:file", async (c) => {
-    const slug = c.req.param("file").replace(/\.zip$/, ""), v = c.req.query("v") ?? "", until = c.req.query("until") ?? "";
+    const file = c.req.param("file"), slug = file.replace(/\.(zip|sql)$/, ""), v = c.req.query("v") ?? "", until = c.req.query("until") ?? "";
     const want = Buffer.from(sign(`export:${slug}:${v}:${until}`)), got = Buffer.from(c.req.query("sig") ?? "");
     if (got.length !== want.length || !timingSafeEqual(got, want) || Number(until) < Date.now()) return c.text("This link has expired. Ask for a new one.", 403);
     await init();
+    // An app on Grove's runner hands over its information as a file, since it has no database of its own to connect to.
+    if (file.endsWith(".sql")) {
+      const { rows: [a] } = await pool.query("select slug from apps where slug = $1 and host = 'runner'", [slug]);
+      if (!a || v !== "data") return c.text("Not found.", 404);
+      return new Response(await runner.dump(slug), { headers: { "content-type": "application/sql", "content-disposition": `attachment; filename="${slug}.sql"` } });
+    }
     const { rows: [row] } = await pool.query("select files from versions where id = $1 and app = $2", [v, slug]);
     if (!row) return c.text("Not found.", 404);
     return new Response(new Uint8Array(zip(row.files)), { headers: { "content-type": "application/zip", "content-disposition": `attachment; filename="${slug}.zip"` } });
@@ -892,8 +933,14 @@ function routes(app: import("hono").Hono<any>) {
     const host = (c.req.query("host") ?? "").toLowerCase();
     if (!DOMAIN || !host.endsWith(`.${DOMAIN}`)) return c.json({ error: "No app here." }, 404);
     await init();
-    const { rows: [a] } = await pool.query("select origin from apps where slug = $1 and origin is not null", [host.slice(0, -DOMAIN.length - 1)]);
-    return a ? c.json({ origin: a.origin }) : c.json({ error: "No app here." }, 404);
+    const name = host.slice(0, -DOMAIN.length - 1);
+    // A trial copy on Grove's runner has an address of its own: the app's name, two dashes, the change's name.
+    const { rows: [a] } = await pool.query(
+      "select a.origin, a.host from apps a where a.slug = $1 union all select null, a.host from changes c join apps a on a.slug = c.app where c.branch_id = $1 and a.host = 'runner' limit 1",
+      [name],
+    );
+    if (a?.host === "runner") return c.json({ runner: true });
+    return a?.origin ? c.json({ origin: a.origin }) : c.json({ error: "No app here." }, 404);
   });
 
   // Neon calls this once a minute (see neon.ts). It wakes the apps that have a background job due.

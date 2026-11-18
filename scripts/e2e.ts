@@ -101,7 +101,15 @@ const link = out.download.replace(new URL(out.download).origin, GROVE); // GROVE
 const zipped = await fetch(link);
 assert.equal(zipped.status, 200);
 assert.equal(new Uint8Array(await zipped.arrayBuffer())[0], 0x50, "a zip");
-assert.match(out.database, /^postgres(ql)?:\/\//);
+// An app with a database of its own gives the address of it; one on Grove's runner gives its information as a file.
+if (out.databaseDownload) {
+  // An app makes its tables the first time it is really used, so use it once before asking for them.
+  await fetch(back.address + "/any-page");
+  const data = await fetch(out.databaseDownload.replace(new URL(out.databaseDownload).origin, GROVE));
+  assert.equal(data.status, 200);
+  assert.match(await data.text(), /CREATE TABLE public\.maple_people/, "a file that loads into any Postgres");
+  assert.equal((await fetch(out.databaseDownload.replace(new URL(out.databaseDownload).origin, GROVE).replace(/sig=.{4}/, "sig=0000"))).status, 403);
+} else assert.match(out.database, /^postgres(ql)?:\/\//);
 assert.equal((await fetch(link.replace(/sig=.{4}/, "sig=0000"))).status, 403, "a changed link is refused");
 
 step("a free app carries the line about Grove, with a way to report it");

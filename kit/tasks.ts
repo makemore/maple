@@ -63,7 +63,7 @@ export function createTasks(o: { pool: Pool; init: () => Promise<unknown>; names
     if (!o.names().includes(name)) throw new Error(`This app has no job called ${name}. Its jobs are: ${o.names().join(", ") || "none yet"}.`);
   };
   const note = o.trial ? { note: "This is a trial copy, where jobs don't run by themselves. The maker can run them with the jobs tool, or they run once the change is live." } : {};
-  const woken = async (at: Date) => void (await o.wake?.(at).catch(() => undefined));
+  const woken = async (at: Date | string) => void (await o.wake?.(new Date(at)).catch(() => undefined));
   return {
     async later(name, payload, when) {
       known(name);

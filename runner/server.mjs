@@ -3,9 +3,10 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
-import { admin, SCHEMA } from "./db.mjs";
+import { bundleForRunner } from "./build.mjs";
+import { admin, SCHEMA, copyApp, dumpApp, pauseApp, putApp, removeApp, sqlAs } from "./db.mjs";
 import * as signin from "./signin.mjs";
-import { run, stop } from "./sandbox.mjs";
+import { forget, run, stop } from "./sandbox.mjs";
 
 const DOMAIN = process.env.APPS_DOMAIN;
 const SIGNIN_HOST = new URL(process.env.SIGNIN_URL).host;
@@ -18,9 +19,38 @@ function hostOf(req) {
   return { host: String((viaEdge && req.headers["x-forwarded-host"]) || req.headers.host || "").toLowerCase(), viaEdge };
 }
 
+/** What Grove asks of the runner: store an app, copy one for a trial, hand over its data, remove it. Grove's token only. */
+async function adminCall(req, path) {
+  const token = process.env.RUNNER_ADMIN_TOKEN ?? "", given = String(req.headers.authorization ?? "").replace(/^Bearer /i, "");
+  if (token.length < 32 || !same(given, token)) return Response.json({ error: "Not allowed." }, { status: 401 });
+  const [, name, action, other] = path.match(/^\/apps\/([a-z0-9-]+)(?:\/([a-z-]+))?(?:\/([a-z0-9-]+))?$/) ?? [];
+  if (!name) return Response.json({ error: "No such thing." }, { status: 404 });
+  const body = ["POST", "PUT"].includes(req.method) ? await new Response(Readable.toWeb(req)).json().catch(() => ({})) : {};
+  try {
+    if (req.method === "PUT" && !action) {
+      const code = await bundleForRunner(body.files);
+      const put = await putApp(name, code, body.env ?? {});
+      await signin.addApp(name, `https://${name}.${DOMAIN}/mcp`, String(body.title ?? name).slice(0, 200));
+      forget(name);
+      return Response.json({ ...put, address: `https://${name}.${DOMAIN}`, bytes: code.length });
+    }
+    if (req.method === "POST" && action === "copy-from") return Response.json(await copyApp(other, name));
+    if (req.method === "POST" && action === "pause") return (await pauseApp(name, body.paused), forget(name), Response.json({ paused: Boolean(body.paused) }));
+    if (req.method === "POST" && action === "sql") return Response.json({ rowCounts: await sqlAs(name, body.statements ?? []) });
+    if (req.method === "GET" && action === "dump") return new Response(await dumpApp(name, "public"), { headers: { "content-type": "application/sql" } });
+    if (req.method === "DELETE" && !action) return (await signin.removeApp(name), forget(name), Response.json(await removeApp(name)));
+    return Response.json({ error: "No such thing." }, { status: 404 });
+  } catch (e) {
+    console.error(`admin ${req.method} ${path}:`, e);
+    const problems = e?.errors?.map?.((x) => `${x.location?.file ?? ""}:${x.location?.line ?? ""} ${x.text}`);
+    return Response.json({ error: String(e?.message ?? e).slice(0, 2000), ...(problems && { problems }) }, { status: e?.status ?? (problems ? 422 : 500) });
+  }
+}
+
 async function answer(req) {
   const { host, viaEdge } = hostOf(req);
   if (req.url === "/runner/health") return Response.json({ ok: true });
+  if (req.url.startsWith("/runner/admin/")) return adminCall(req, req.url.slice("/runner/admin".length).split("?")[0]);
   // In production everything comes through the front door, so traffic limits can't be skipped.
   if (process.env.EDGE_SECRET && !viaEdge) return new Response("Not here.", { status: 404 });
   const headers = new Headers();

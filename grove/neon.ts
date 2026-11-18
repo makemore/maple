@@ -53,6 +53,9 @@ export default defineConfig({
         GROVE_INVITE_ONLY: { value: process.env.GROVE_INVITE_ONLY, required: false },
         // Shared with Grove's front door on Cloudflare (edge/), which asks Grove where each app lives.
         EDGE_SECRET: { value: process.env.EDGE_SECRET, required: false },
+        // Grove's shared runner (runner/), where free apps live, and the token that lets Grove manage apps on it.
+        RUNNER_URL: { value: process.env.RUNNER_ORIGIN, required: false },
+        RUNNER_ADMIN_TOKEN: { value: process.env.RUNNER_ADMIN_TOKEN, required: false },
         // Set once every app address goes through the front door: new apps then aren't registered as Neon custom domains.
         APPS_EDGE: { value: process.env.APPS_EDGE, required: false },
         // Where the code is public. With it, the front page says "open source" and links there.

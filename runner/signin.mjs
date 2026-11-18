@@ -60,6 +60,8 @@ export async function ready() {
 export const addApp = (slug, mcpUrl, title) =>
   db.query(`insert into "oauthResource" (id, identifier, name, "createdAt", "updatedAt") values ($1, $2, $3, now(), now()) on conflict (id) do update set identifier = $2, name = $3, "updatedAt" = now()`, [`app-${slug}`, mcpUrl, title]);
 
+export const removeApp = (slug) => db.query(`delete from "oauthResource" where id = $1`, [`app-${slug}`]);
+
 export const jwks = () => auth.handler(new Request(`${ISSUER()}/jwks`));
 const authServerMeta = oauthProviderAuthServerMetadata(auth), openIdMeta = oauthProviderOpenIdConfigMetadata(auth);
 

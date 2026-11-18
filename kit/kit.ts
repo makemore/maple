@@ -180,7 +180,7 @@ export function createMapleApp(def: AppDef) {
       names: () => Object.keys(def.jobs ?? {}),
       trial,
       // Grove calls /maple/tick when a job is due, so it needs to know when that is.
-      wake: grove && appSecret && !trial ? (at) => fetch(`${grove}/services/tasks/wake`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${appSecret}` }, body: JSON.stringify({ at: at.toISOString() }), signal: AbortSignal.timeout(5000) }) : undefined,
+      wake: grove && appSecret && !trial ? (at) => fetch(`${grove}/services/tasks/wake`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${appSecret}` }, body: JSON.stringify({ at: new Date(at).toISOString() }), signal: AbortSignal.timeout(5000) }) : undefined,
     }),
   });
   const runJobs = async () => (await init(), tick(pool, def.jobs ?? {}, { pool, services }));

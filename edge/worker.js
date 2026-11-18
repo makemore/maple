@@ -33,21 +33,24 @@ async function where(host, env, ctx) {
   }
 }
 
+/** Passes a request to Grove's shared runner, saying which address it was for and proving it came through here. */
+function toRunner(request, incoming, env) {
+  const upstream = new URL(env.RUNNER_ORIGIN);
+  upstream.pathname = incoming.pathname;
+  upstream.search = incoming.search;
+  const headers = new Headers(request.headers);
+  headers.delete("host");
+  headers.set("x-forwarded-host", incoming.hostname);
+  headers.set("x-edge-secret", env.EDGE_SECRET);
+  return fetch(upstream, { method: request.method, headers, body: request.body, redirect: "manual" });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const incoming = new URL(request.url);
     // Addresses served by Grove's shared runner (sign-in, and the apps that share it). The runner only
     // answers requests that carry the secret, so nobody can go round the front door.
-    if (env.RUNNER_ORIGIN && (env.RUNNER_HOSTS ?? "").split(",").includes(incoming.hostname)) {
-      const upstream = new URL(env.RUNNER_ORIGIN);
-      upstream.pathname = incoming.pathname;
-      upstream.search = incoming.search;
-      const headers = new Headers(request.headers);
-      headers.delete("host");
-      headers.set("x-forwarded-host", incoming.hostname);
-      headers.set("x-edge-secret", env.EDGE_SECRET);
-      return fetch(upstream, { method: request.method, headers, body: request.body, redirect: "manual" });
-    }
+    if (env.RUNNER_ORIGIN && (env.RUNNER_HOSTS ?? "").split(",").includes(incoming.hostname)) return toRunner(request, incoming, env);
     let to;
     try {
       to = await where(incoming.hostname, env, ctx);
@@ -55,6 +58,7 @@ export default {
       return new Response("This app can't be reached right now. Please try again in a minute.", { status: 502 });
     }
     if (!to) return new Response("There is no app at this address.", { status: 404 });
+    if (to.runner) return toRunner(request, incoming, env);
 
     // The address to call is built from a fixed origin; only the path and query come from the request.
     const upstream = new URL(to.origin);
