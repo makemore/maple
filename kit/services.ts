@@ -24,7 +24,11 @@ export interface Services {
      */
     send(msg: { to: string | string[]; subject: string; text: string; replyTo?: string }): Promise<{ sent: string[]; held: string[]; note?: string }>;
   };
-  /** Pretend for now. Taking a card payment on a page Grove hosts. */
+  /**
+   * Taking a card payment on a Stripe page. Pretend (mock: true) until the app's business connects its own
+   * Stripe account through Grove, and always on a trial copy; real after that, with the money going straight to them.
+   * After paying, people come back to returnTo with ?paid=1 added; check status(id) rather than trusting that.
+   */
   payments: {
     /** Starts a payment. amount is in the smallest unit (pence, cents). Send the person to `url` to pay. */
     checkout(o: { amount: number; currency?: string; description: string; reference?: string; returnTo?: string }): Promise<{ id: string; url: string; status: "unpaid" } & Pretend>;
@@ -58,7 +62,7 @@ export interface Services {
 /** What each service is, and whether it is real yet. Grove's own list is the one to trust; this is for apps run elsewhere. */
 export const SERVICE_LIST = [
   { name: "email", real: true, what: "Confirmations, reminders and notices, sent from your app." },
-  { name: "payments", real: false, what: "Take a card payment on a page Grove hosts. No payment account to open." },
+  { name: "payments", real: false, what: "Take a card payment on a Stripe page. Real once the business connects its own Stripe account through Grove; pretend before that and on trial copies." },
   { name: "tasks", real: true, what: "Do something later, or every morning, without anyone asking." },
   { name: "files", real: true, what: "Keep uploads and photos, each with its own web address." },
   { name: "texts", real: false, what: "Send a text to a phone." },

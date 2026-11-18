@@ -86,7 +86,7 @@ accounts and keys. `src/maple/services.ts` lists every call with its inputs and 
 | `services.email.send({ to, subject, text })` | Yes | Confirmations, reminders, anything by email. Plain text, up to 10 addresses a call, a daily limit per app. |
 | `services.tasks.later(name, payload, { inMinutes })`, `.every(name, { hours } or { dailyAt })` | Yes | Work that runs later or on a timer. See below. |
 | `services.files.put({ name, type, base64, public })`, `.link(id)`, `.remove(id)` | Yes | Keeping photos and documents, up to 4 MB each. Store the `id` in a table; a private file needs a fresh `link` each time it is shown. |
-| `services.payments.checkout(...)`, `.status(id)` | Pretend | Taking a card payment on a page Grove hosts. |
+| `services.payments.checkout({ amount, description, reference, returnTo })`, `.status(id)` | Pretend until connected | Taking a card payment on a Stripe page. Real once the maker runs Grove's `connect_payments` and Stripe is ready; pretend before that and always on trial copies. Keep the `id` in a table and check `status(id)` before treating anything as paid. |
 | `services.texts.send(...)` | Pretend | Text messages to phones. |
 | `services.ai.ask(...)` | Pretend | Sorting or summarising what people typed. |
 | `services.pdf.make(...)` | Pretend | Invoices, certificates, anything to print. |

@@ -26,7 +26,7 @@ create table if not exists pretend_payments (
 /** What Grove offers apps, and whether each is real yet. Shown by the services tool and on the front page. */
 export const SERVICES = [
   { name: "email", real: true, title: "Email", what: "Confirmations, reminders and notices, sent from the app.", use: "services.email.send({ to, subject, text })" },
-  { name: "payments", real: false, title: "Payments", what: "Take a card payment on a page Grove hosts. No payment account to open.", use: "services.payments.checkout({ amount, description })" },
+  { name: "payments", real: false, title: "Payments", what: "Take a card payment on a Stripe page. Pretend until the business connects its own Stripe account (connect_payments); then the money goes straight to them, and Grove takes nothing.", use: "services.payments.checkout({ amount, description })" },
   { name: "tasks", real: true, title: "Background work", what: "Do something later, or every day, without anyone asking. Kept in the app's own database, so it works wherever the app runs.", use: "services.tasks.later(name, payload, { inMinutes }) with the work in jobs" },
   { name: "files", real: true, title: "Files and photos", what: "Keep uploads and get a web address for each: public, or a private link that runs out.", use: "services.files.put({ name, type, base64, public })" },
   { name: "texts", real: false, title: "Text messages", what: "Send a text to a phone.", use: "services.texts.send({ to, text })" },

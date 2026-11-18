@@ -47,6 +47,10 @@ export default defineConfig({
         // Own domains for apps (Cloudflare for SaaS on the apps zone): a token that can edit its custom hostnames, and the zone's id.
         CF_API_TOKEN: { value: process.env.CF_API_TOKEN, required: false, onUndefined: "skip" },
         CF_ZONE_ID: { value: process.env.CF_ZONE_ID, required: false, onUndefined: "skip" },
+        // Real payments for apps through Stripe Connect: the signing secret of a Connect webhook to <site>/stripe/connect
+        // for checkout.session.completed and checkout.session.async_payment_succeeded. STRIPE_CONNECT=off turns it off.
+        STRIPE_CONNECT_WEBHOOK_SECRET: { value: process.env.STRIPE_CONNECT_WEBHOOK_SECRET, required: false, onUndefined: "skip" },
+        STRIPE_CONNECT: { value: process.env.STRIPE_CONNECT, required: false, onUndefined: "skip" },
         // SENTRY_DSN: where Grove's errors go (a Sentry project's DSN).
         SENTRY_DSN: { value: process.env.SENTRY_DSN, required: false, onUndefined: "skip" },
         // ANTHROPIC_API_KEY: turns on the AI review of public pages before they ship.

@@ -25,6 +25,8 @@ import { shell } from "./site.ts";
 import { importTools, runImports } from "./tools-import.ts";
 import { adminTools } from "./tools-admin.ts";
 import { DOMAINS_SCHEMA, domainTools } from "./tools-domains.ts";
+import { PAYMENTS_SCHEMA, PaymentError, accountFor, checkout as realCheckout, connect as connectStripe, onConnectEvent, paymentsOn, refresh as refreshPayments, status as realStatus } from "./payments.ts";
+import { backLinks, paymentTools } from "./tools-payments.ts";
 import { watchErrors } from "./errors.ts";
 import { digest, stats } from "./stats.ts";
 import { AUTO_PAUSE_REPORTS, NEW_APPS, NEW_DAYS, SAFETY_SCHEMA, aiReview, blocking, dangerousUrls, disposable, distinctReports, nameProblem, outsideUrls, personEmailsPerDay, personEmailsToday, publicText, trustOf } from "./safety.ts";
@@ -47,7 +49,7 @@ create table if not exists changes (
   app text not null, name text not null, version bigint not null, base bigint not null, branch_id text, url text,
   updated_at timestamptz not null default now(), primary key (app, name));
 create table if not exists waitlist (
-  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}${GUARD_SCHEMA}${METER_SCHEMA}${SERVICES_SCHEMA}${UPKEEP_SCHEMA}${OWNER_SCHEMA}${SAFETY_SCHEMA}${DOMAINS_SCHEMA}`;
+  email text primary key, idea text, created_at timestamptz not null default now());${BILLING_SCHEMA}${LEGAL_SCHEMA}${GUARD_SCHEMA}${METER_SCHEMA}${SERVICES_SCHEMA}${UPKEEP_SCHEMA}${OWNER_SCHEMA}${SAFETY_SCHEMA}${DOMAINS_SCHEMA}${PAYMENTS_SCHEMA}`;
 
 const DOMAIN = process.env.APPS_DOMAIN;
 
@@ -549,6 +551,7 @@ function tools(server: McpServer, ctx: Ctx) {
   );
 
   domainTools(server, { pool, ctx, appFor, mustAgree, notPaused });
+  paymentTools(server, { pool, ctx, site, sign, appFor, mustAgree, notPaused });
   adminTools(server, { pool, ctx, init, appFor, makerOnly, pause, putUpAgain });
   importTools(server, { pool, ctx, site, sign, appFor, init, mustAgree, notPaused, changeName, filesOf, preview, previewAs });
 
@@ -941,6 +944,34 @@ function routes(app: import("hono").Hono<any>) {
     return c.html(shell("Grove: uploaded", `<h1>Got it</h1><p>${name} (${Math.max(1, Math.round(file.size / 1000))} KB) is uploaded. Go back to your chat and say it's done.</p>`));
   });
 
+  // Where Stripe sends a business back after setting up payments for an app.
+  app.get("/payments/done/:app", (c) =>
+    c.html(shell("Grove: payments set up", `<h1>Thanks, that's saved with Stripe</h1><p>Go back to your chat and ask whether payments are ready. Stripe sometimes takes a day or two to check a business; until then the app's payments stay pretend.</p>`)),
+  );
+  // An old Stripe set-up link ran out: make a fresh one and go straight there. The link Grove gave out is signed and lasts a week.
+  app.get("/payments/refresh/:app", async (c) => {
+    const slug = c.req.param("app"), until = c.req.query("until") ?? "", sig = c.req.query("sig") ?? "";
+    const want = Buffer.from(sign(`payments:${slug}:${until}`)), got = Buffer.from(sig);
+    if (got.length !== want.length || !timingSafeEqual(got, want) || Number(until) < Date.now()) return c.html(shell("Grove: link expired", "<h1>This link has expired</h1><p>Ask your assistant to connect payments again for a new link.</p>"), 403);
+    await init();
+    const { rows: [a] } = await pool.query("select slug, title, makers from apps where slug = $1 and paused_at is null", [slug]);
+    const row = a && (await accountFor(pool, slug));
+    if (!a || !row || !paymentsOn()) return c.html(shell("Grove: not found", "<h1>Nothing to set up here</h1><p>Ask your assistant to connect payments again.</p>"), 404);
+    const { url } = await connectStripe(pool, a, a.makers[0], backLinks(site, slug, sign));
+    return c.redirect(url, 302);
+  });
+  // Stripe's events from apps' own connected accounts (a Connect webhook): payments that went through.
+  app.post("/stripe/connect", async (c) => {
+    const raw = await c.req.text();
+    await init();
+    try {
+      return c.json({ received: await onConnectEvent(pool, raw, c.req.header("stripe-signature")) });
+    } catch (e) {
+      if (e instanceof PaymentError) return c.json({ error: e.message }, e.status as 503);
+      return c.json({ error: "Bad signature." }, 400);
+    }
+  });
+
   // Stripe tells Grove here when someone pays, changes or cancels. Each call is signed by Stripe.
   app.post("/stripe/webhook", async (c) => {
     const body = await c.req.text();
@@ -965,7 +996,7 @@ function routes(app: import("hono").Hono<any>) {
     if (!secret) return c.json({ error: "No app secret." }, 401);
     await init();
     const want = hash(secret);
-    const { rows: [a] } = await pool.query("select slug, title, url, makers, users, paused_at, secret_hash from apps where secret_hash = $1", [want]);
+    const { rows: [a] } = await pool.query("select slug, title, url, makers, users, paused_at, limited, secret_hash from apps where secret_hash = $1", [want]);
     if (!a || !timingSafeEqual(Buffer.from(a.secret_hash), Buffer.from(want))) return c.json({ error: "Unknown app." }, 401);
     if (!known(service, action)) return c.json({ error: "Grove has no such service." }, 404);
     if (a.paused_at) return c.json({ error: "This app is paused." }, 403);
@@ -998,9 +1029,24 @@ function routes(app: import("hono").Hono<any>) {
         kept = { name: body?.name, type: body?.type, id: body?.id };
         await pool.query("insert into service_calls (app, service, action, body, result, mock, trial) values ($1, $2, $3, $4, $5, false, $6)", [a.slug, service, action, JSON.stringify(kept), JSON.stringify(result), trial]);
         return c.json(result);
-      } else if (service === "payments" && action === "checkout") result = await pretendCheckout(pool, a.slug, body, id, site);
-      else if (service === "payments") result = await pretendStatus(pool, a.slug, body);
-      else {
+      } else if (service === "payments") {
+        // Real once the app's business has connected Stripe and Stripe says it's ready; pretend on trial copies and until then.
+        const acct = !trial && paymentsOn() ? await accountFor(pool, a.slug) : undefined;
+        const ready = acct && (acct.ready || (!acct.checked_at || Date.now() - new Date(acct.checked_at).getTime() > 600_000 ? (await refreshPayments(pool, a.slug, acct.account).catch(() => ({ ready: false }))).ready : false));
+        try {
+          if (action === "checkout") result = ready ? await realCheckout(pool, a, acct.account, body) : await pretendCheckout(pool, a.slug, body, id, site);
+          else result = typeof body?.id === "string" && body.id.startsWith("cs_") ? await realStatus(pool, a.slug, body) : await pretendStatus(pool, a.slug, body);
+        } catch (e) {
+          if (e instanceof PaymentError) throw new ServiceError(e.message, e.status);
+          throw e;
+        }
+        if (result.mock && acct && !ready) result.note = "Pretend: no money moved. This app is connected to Stripe, but Stripe hasn't finished checking the business yet (payments_status says how it's going).";
+        if (!result.mock) {
+          await pool.query("insert into service_calls (app, service, action, body, result, mock, trial) values ($1, $2, $3, $4, $5, false, $6)", [a.slug, service, action, JSON.stringify({ amount: body?.amount, currency: body?.currency, description: body?.description, reference: body?.reference }), JSON.stringify(result), trial]);
+          return c.json(result);
+        }
+        kept = { amount: body?.amount, currency: body?.currency, description: body?.description, reference: body?.reference, id: body?.id };
+      } else {
         result = pretend(service, action, body, id, site);
         const { base64: _b, html: _h, ...rest } = body ?? {};
         kept = JSON.stringify(rest).length < 4000 ? rest : {};
