@@ -80,7 +80,9 @@ export function createTasks(o: { pool: Pool; init: () => Promise<unknown>; names
       known(name);
       const hours = "hours" in how ? Number(how.hours) : undefined;
       const dailyAt = "dailyAt" in how ? String(how.dailyAt) : undefined;
-      if (dailyAt === undefined && !(hours! >= 0.25 && hours! <= 24 * 31)) throw new Error('Give hours (0.25 or more) or dailyAt (a UTC time like "08:00").');
+      // Whoever runs the app may set how often a repeating job can run (each run wakes the database).
+      const least = Math.max(0.25, Number(process.env.MAPLE_MIN_JOB_HOURS) || 0);
+      if (dailyAt === undefined && !(hours! >= least && hours! <= 24 * 31)) throw new Error(`Give hours (${least} or more${least > 0.25 ? " on this app's plan" : ""}) or dailyAt (a UTC time like "08:00").`);
       if (dailyAt !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(dailyAt)) throw new Error('dailyAt must be a UTC time like "08:00".');
       const first = dailyAt ? nextDaily(dailyAt) : new Date(Date.now() + hours! * 3_600_000);
       await o.init();

@@ -4,6 +4,7 @@
 // answer in the real shape with `mock: true` and a note saying what did not happen.
 import type { Pool } from "pg";
 import { shell } from "./site.ts";
+import { deleteObject, putObject, storageOn } from "./storage.ts";
 
 export const SERVICES_SCHEMA = `
 create table if not exists service_calls (
@@ -13,6 +14,10 @@ create table if not exists service_calls (
 create index if not exists service_calls_app on service_calls (app, at desc);
 alter table apps add column if not exists wake_at timestamptz;
 create table if not exists app_offers (app text primary key, to_email text not null, from_email text not null, at timestamptz not null default now());
+create table if not exists files (
+  id uuid primary key, app text not null, name text not null, type text not null, bytes integer not null,
+  public boolean not null default false, trial boolean not null default false, created_at timestamptz not null default now());
+create index if not exists files_app on files (app);
 create table if not exists pretend_payments (
   id text primary key, app text not null, amount integer not null, currency text not null, description text not null,
   reference text, return_to text, paid_at timestamptz, created_at timestamptz not null default now());`;
@@ -22,14 +27,14 @@ export const SERVICES = [
   { name: "email", real: true, title: "Email", what: "Confirmations, reminders and notices, sent from the app.", use: "services.email.send({ to, subject, text })" },
   { name: "payments", real: false, title: "Payments", what: "Take a card payment on a page Grove hosts. No payment account to open.", use: "services.payments.checkout({ amount, description })" },
   { name: "tasks", real: true, title: "Background work", what: "Do something later, or every day, without anyone asking. Kept in the app's own database, so it works wherever the app runs.", use: "services.tasks.later(name, payload, { inMinutes }) with the work in jobs" },
-  { name: "files", real: false, title: "Files and photos", what: "Keep uploads and get a web address for each.", use: "services.files.put({ name, type, base64 })" },
+  { name: "files", real: true, title: "Files and photos", what: "Keep uploads and get a web address for each: public, or a private link that runs out.", use: "services.files.put({ name, type, base64, public })" },
   { name: "texts", real: false, title: "Text messages", what: "Send a text to a phone.", use: "services.texts.send({ to, text })" },
   { name: "ai", real: false, title: "AI inside the app", what: "Sort, summarise or draft from what people typed.", use: "services.ai.ask({ prompt })" },
   { name: "pdf", real: false, title: "PDFs", what: "Invoices, certificates and anything to print.", use: "services.pdf.make({ title, html })" },
 ] as const;
 
 const ACTIONS: Record<string, string[]> = {
-  email: ["send"], payments: ["checkout", "status"], tasks: ["wake"], files: ["put", "remove"], texts: ["send"], ai: ["ask"], pdf: ["make"],
+  email: ["send"], payments: ["checkout", "status"], tasks: ["wake"], files: ["put", "remove", "link"], texts: ["send"], ai: ["ask"], pdf: ["make"],
 };
 export const known = (service: string, action: string) => Boolean(ACTIONS[service]?.includes(action));
 
@@ -94,6 +99,8 @@ export function pretend(service: string, action: string, body: any, id: string, 
       const bytes = Math.floor((need(body.base64, "base64", 8_000_000).length * 3) / 4);
       return { id, url: `${site}/pretend/file/${id}/${name}`, bytes, ...base };
     }
+    case "files.link":
+      return { id: need(body.id, "id"), url: `${site}/pretend/file/${body.id}`, ...base };
     case "files.remove":
       return { id: need(body.id, "id"), removed: true as const, ...base };
     case "texts.send": {
@@ -205,4 +212,66 @@ export async function wakeDue(pool: Pool, secretFor: (slug: string) => string, c
     }),
   );
   return results;
+}
+
+/** What kinds of file apps may keep. Nothing a browser would run: no web pages, scripts or SVG. */
+export const FILE_TYPES = new Set([
+  "image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf", "text/plain", "text/csv",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
+export const MAX_FILE_BYTES = 4_000_000;
+/** How much one app may keep in all. */
+export const appFileBytes = (paid: boolean) => (paid ? 2_000_000_000 : 100_000_000);
+export const filesOn = storageOn;
+export const fileKey = (app: string, id: string) => `${app}/${id}`;
+export const fileName = (name: string) => name.replace(/[^\w.-]+/g, "-").replace(/^[.-]+/, "").slice(0, 120) || "file";
+
+/** Checks a file an app wants kept. Throws a ServiceError saying what is wrong. */
+export function checkFile(body: any) {
+  const name = fileName(str(body?.name, "name", 200));
+  const type = str(body.type, "type", 100).toLowerCase().split(";")[0].trim();
+  if (!FILE_TYPES.has(type)) throw new ServiceError("That kind of file can't be kept. Images (png, jpeg, gif, webp), PDFs, plain text, CSV, Word and Excel files can.");
+  const base64 = str(body.base64, "base64", Math.ceil(MAX_FILE_BYTES / 3) * 4 + 4);
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) throw new ServiceError("base64 must be the file's contents in base64.");
+  const bytes = Buffer.from(base64, "base64");
+  if (!bytes.length) throw new ServiceError("The file is empty.");
+  if (bytes.length > MAX_FILE_BYTES) throw new ServiceError(`The file is too big (${Math.floor(MAX_FILE_BYTES / 1_000_000)} MB at most).`);
+  return { name, type, bytes, public: body.public === true };
+}
+
+/** A private file's link: good until `until`, and only for that file. */
+export const fileLink = (site: string, f: { id: string; name: string; public?: boolean }, sign: (what: string) => string, minutes = 60, now = Date.now()) => {
+  if (f.public) return `${site}/files/${f.id}/${f.name}`;
+  const until = Math.floor(now / 1000) + Math.round(Math.min(Math.max(minutes, 1), 60 * 24 * 7) * 60);
+  return `${site}/files/${f.id}/${f.name}?until=${until}&sig=${sign(`file:${f.id}:${until}`).slice(0, 32)}`;
+};
+export const linkGood = (id: string, until: string | undefined, sig: string | undefined, sign: (what: string) => string, now = Date.now()) =>
+  Boolean(until && sig && Number(until) * 1000 > now && sig === sign(`file:${id}:${until}`).slice(0, 32));
+
+export async function keepFile(pool: Pool, app: string, body: any, id: string, o: { site: string; paid: boolean; trial: boolean; sign: (what: string) => string }) {
+  const f = checkFile(body);
+  const { rows: [{ used }] } = await pool.query("select coalesce(sum(bytes), 0)::bigint used from files where app = $1", [app]);
+  if (Number(used) + f.bytes.length > appFileBytes(o.paid)) throw new ServiceError(`This app has no room left for files (${Math.round(appFileBytes(o.paid) / 1_000_000)} MB in all). Remove some first.`, 413);
+  await putObject(fileKey(app, id), f.bytes, f.type);
+  await pool.query("insert into files (id, app, name, type, bytes, public, trial) values ($1, $2, $3, $4, $5, $6, $7)", [id, app, f.name, f.type, f.bytes.length, f.public, o.trial]);
+  return { id, url: fileLink(o.site, { id, name: f.name, public: f.public }, o.sign), bytes: f.bytes.length, public: f.public, ...(!f.public && { note: "This is a private link that works for an hour. services.files.link(id) gives a fresh one." }) };
+}
+
+export async function linkFile(pool: Pool, app: string, body: any, o: { site: string; sign: (what: string) => string }) {
+  const { rows: [f] } = await pool.query("select id, name, public from files where id::text = $1 and app = $2", [str(body?.id, "id", 100), app]);
+  if (!f) throw new ServiceError("No file with that id.", 404);
+  return { id: f.id, url: fileLink(o.site, f, o.sign, Number(body.minutes) || 60) };
+}
+
+export async function removeFile(pool: Pool, app: string, body: any) {
+  const { rows: [f] } = await pool.query("delete from files where id::text = $1 and app = $2 returning id", [str(body?.id, "id", 100), app]);
+  if (f) await deleteObject(fileKey(app, f.id));
+  return { id: String(body.id), removed: Boolean(f) };
+}
+
+/** Removes every file an app kept, when the app is deleted. */
+export async function removeFilesOf(pool: Pool, app: string) {
+  const { rows } = await pool.query("delete from files where app = $1 returning id", [app]);
+  if (storageOn()) await Promise.allSettled(rows.map((f) => deleteObject(fileKey(app, f.id))));
+  return rows.length;
 }

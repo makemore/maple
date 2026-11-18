@@ -47,6 +47,13 @@ export async function createProject(name: string) {
   return { project: project.id as string, branch: branch.id as string };
 }
 
+/**
+ * The most database time an app may use in a month, in compute-hours (0: no limit). Past it Neon
+ * stops the app's database until the next month, so one free app can never run up a large bill.
+ */
+export const capCompute = (project: string, hours: number) =>
+  neon("PATCH", `/projects/${project}`, { project: { settings: { quota: { compute_time_seconds: Math.round(hours * 3600) } } } });
+
 /** A copy of the live database for a preview. Sign-in settings come along with it. */
 export async function createBranch(project: string, name: string, parent: string) {
   const { branch } = await settled(() => neon("POST", `/projects/${project}/branches`, { branch: { name, parent_id: parent }, endpoints: [{ type: "read_write" }] }));

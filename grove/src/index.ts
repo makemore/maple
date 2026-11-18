@@ -8,7 +8,7 @@ import { createMapleApp, z, type Ctx, type Manifest } from "../../kit/kit.ts";
 import { BILLING_SCHEMA, billingOn, checkout, onEvent, planFor, portal, priceText, verified } from "./billing.ts";
 import { BuildError, bundle, check, upload, zip, type Files } from "./build.ts";
 import { Client } from "pg";
-import { connectionUri, createBranch, createProject, deleteBranch, deleteProject, registerDomain, setUpSignIn } from "./neon.ts";
+import { capCompute, connectionUri, createBranch, createProject, deleteBranch, deleteProject, registerDomain, setUpSignIn } from "./neon.ts";
 import { waitUntil } from "@neon/functions";
 import { parseTriggerDelivery } from "@neon/functions/triggers";
 import { GUARD_SCHEMA, MAX_OPEN_CHANGES, appNamed, blockedWhy, concerns, mayNotify, pausedArchive, report, reportPage, underBuildLimit } from "./guard.ts";
@@ -18,7 +18,8 @@ import { sitePage, type PaidPlan } from "./site.ts";
 import { CHANGE, MAX_FILE, RESERVED, SLUG, applyWrites, diff, merge, tooBig, withKit } from "./code.ts";
 import { TEMPLATE } from "./template-files.ts";
 import { UPKEEP_SCHEMA, due, prune } from "./upkeep.ts";
-import { SERVICES, SERVICES_SCHEMA, ServiceError, appEmailsPerDay, checkEmail, footer, fromName, known, pretend, pretendCheckout, pretendPayPage, pretendStatus, sendMail, wakeAt, wakeDue, whoGets } from "./services.ts";
+import { getObject } from "./storage.ts";
+import { SERVICES, SERVICES_SCHEMA, ServiceError, appEmailsPerDay, checkEmail, footer, fromName, known, pretend, pretendCheckout, pretendPayPage, pretendStatus, removeFile, removeFilesOf, sendMail, wakeAt, wakeDue, whoGets, filesOn, keepFile, linkFile, linkGood, fileKey } from "./services.ts";
 
 // An app's code lives here as whole versions: every saved change and every shipped state is one row.
 const schema = `
@@ -114,11 +115,16 @@ async function built(files: Files) {
   return b.value;
 }
 
+/** What a free app gets: database hours a month, and how often a repeating job may run. Both keep the cost of free apps known. */
+const FREE_CU_HOURS = Number(process.env.FREE_APP_CU_HOURS ?? 20), FREE_JOB_HOURS = Number(process.env.FREE_APP_JOB_HOURS ?? 6);
+
 /** Puts a built version on one of the app's database branches and makes sign-in work at its address. */
 async function putUp(a: any, branch: string, archive: Record<string, string>, version: string, publicUrl?: string, first = false) {
   // Free apps carry a line about Grove at the foot of their pages; the paid plan takes it off.
   const free = (await planFor(pool, a.makers[0])).plan === "free";
-  const env = { GROVE_URL: site, GROVE_APP_SECRET: appSecret(a.slug), MAPLE_COMMIT: String(version), ...(publicUrl ? { PUBLIC_URL: publicUrl } : { GROVE_TRIAL: "1" }), ...(free && { GROVE_BADGE: a.slug }) };
+  const env = { GROVE_URL: site, GROVE_APP_SECRET: appSecret(a.slug), MAPLE_COMMIT: String(version), ...(publicUrl ? { PUBLIC_URL: publicUrl } : { GROVE_TRIAL: "1" }), ...(free && { GROVE_BADGE: a.slug, MAPLE_MIN_JOB_HOURS: String(FREE_JOB_HOURS) }) };
+  // A free app's database gets a monthly allowance; the paid plan has none. Failing to set it doesn't stop the app going up.
+  await capCompute(a.neon_project_id, free ? FREE_CU_HOURS : 0).catch((e: Error) => console.error(`compute cap for ${a.slug} not set:`, e.message));
   const { address } = await upload({ key: process.env.NEON_API_KEY!, project: a.neon_project_id, branch }, archive, env);
   const url = publicUrl ?? address;
   if (first && publicUrl && publicUrl !== address) await registerDomain(a.neon_project_id, branch, new URL(publicUrl).host);
@@ -308,7 +314,7 @@ function tools(server: McpServer, ctx: Ctx) {
       title: "What Grove does for apps",
       annotations: { readOnlyHint: true },
       description:
-        "What Grove can do for an app so its maker sets nothing up: email and background work (real), and payments, files, text messages, AI and PDFs (pretend for now: they answer in the real shape but nothing really happens). Use it before building a feature that needs one, and to see what an app has asked for lately. With app, also lists that app's last 30 calls. Tell the person plainly which services are pretend.",
+        "What Grove can do for an app so its maker sets nothing up: email, background work and files (real), and payments, text messages, AI and PDFs (pretend for now: they answer in the real shape but nothing really happens). Use it before building a feature that needs one, and to see what an app has asked for lately. With app, also lists that app's last 30 calls. Tell the person plainly which services are pretend.",
       inputSchema: { app: z.string().optional().describe("One of the person's apps, to see what it has used") },
     },
     async ({ app: slug }) => {
@@ -736,6 +742,7 @@ function tools(server: McpServer, ctx: Ctx) {
       const a = await appFor(ctx, slug);
       if (confirm !== slug) throw new Error("confirm must be the app's name, typed by the person.");
       if (a.neon_project_id) await deleteProject(a.neon_project_id).catch((e) => { if (!/ 404 /.test(String(e))) throw e; });
+      await removeFilesOf(pool, slug);
       for (const t of ["changes", "versions", "app_offers", "service_calls", "pretend_payments"]) await pool.query(`delete from ${t} where app = $1`, [slug]);
       await pool.query("delete from apps where slug = $1", [slug]);
       return json({ deleted: slug });
@@ -854,6 +861,12 @@ function routes(app: import("hono").Hono<any>) {
       } else if (service === "tasks") {
         if (!trial) await wakeAt(pool, a.slug, body);
         return c.json({ ok: true });
+      } else if (service === "files" && filesOn()) {
+        const paid = (await planFor(pool, a.makers[0])).plan !== "free";
+        result = action === "put" ? await keepFile(pool, a.slug, body, id, { site, paid, trial, sign }) : action === "link" ? await linkFile(pool, a.slug, body, { site, sign }) : await removeFile(pool, a.slug, body);
+        kept = { name: body?.name, type: body?.type, id: body?.id };
+        await pool.query("insert into service_calls (app, service, action, body, result, mock, trial) values ($1, $2, $3, $4, $5, false, $6)", [a.slug, service, action, JSON.stringify(kept), JSON.stringify(result), trial]);
+        return c.json(result);
       } else if (service === "payments" && action === "checkout") result = await pretendCheckout(pool, a.slug, body, id, site);
       else if (service === "payments") result = await pretendStatus(pool, a.slug, body);
       else {
@@ -877,6 +890,28 @@ function routes(app: import("hono").Hono<any>) {
     const woken = await wakeDue(pool, appSecret);
     if (await due(pool, "prune")) waitUntil(prune(pool).then((r) => console.log("pruned", JSON.stringify(r)), (e) => console.error("prune failed:", e)));
     return c.json({ woken: woken.length, failed: woken.filter((w) => !w.ok).length });
+  });
+
+  // A file an app asked Grove to keep. Public ones open for anyone; private ones need a link that hasn't run out.
+  // Served so a browser never runs it as part of this site: images show, everything else downloads.
+  app.get("/files/:id/:name", async (c) => {
+    await init();
+    const id = c.req.param("id");
+    const { rows: [f] } = /^[0-9a-f-]{36}$/.test(id) ? await pool.query("select f.*, a.paused_at from files f join apps a on a.slug = f.app where f.id = $1", [id]) : { rows: [] };
+    if (!f || f.paused_at) return c.notFound();
+    if (!f.public && !linkGood(f.id, c.req.query("until"), c.req.query("sig"), sign)) return c.text("This link has run out. Ask the app for a new one.", 403);
+    const stored = await getObject(fileKey(f.app, f.id));
+    if (!stored) return c.notFound();
+    return new Response(stored.body, {
+      headers: {
+        "content-type": f.type,
+        "content-length": String(f.bytes),
+        "content-disposition": `${f.type.startsWith("image/") ? "inline" : "attachment"}; filename="${f.name}"`,
+        "x-content-type-options": "nosniff",
+        "content-security-policy": "default-src 'none'; sandbox",
+        "cache-control": f.public ? "public, max-age=3600" : "private, no-store",
+      },
+    });
   });
 
   // Where a pretend payment sends people. It never asks for card details.

@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createServices, SERVICE_LIST } from "../kit/services.ts";
+import { FILE_TYPES, MAX_FILE_BYTES, appFileBytes, checkFile, fileLink, keepFile, linkGood } from "../grove/src/services.ts";
+import { signed } from "../grove/src/storage.ts";
 import { SERVICES, ServiceError, appEmailsPerDay, checkEmail, footer, fromName, known, pretend, pretendCheckout, pretendPayPage, pretendStatus, whoGets } from "../grove/src/services.ts";
 
 const answering = (...answers: any[]) => {
@@ -10,8 +12,8 @@ const answering = (...answers: any[]) => {
 };
 const SITE = "https://grove.example";
 
-test("the list: email and background work are real, and the kit and Grove agree on what exists", () => {
-  assert.deepEqual(SERVICES.filter((s) => s.real).map((s) => s.name), ["email", "tasks"]);
+test("the list: email, background work and files are real, and the kit and Grove agree on what exists", () => {
+  assert.deepEqual(SERVICES.filter((s) => s.real).map((s) => s.name), ["email", "tasks", "files"]);
   assert.deepEqual(SERVICES.map((s) => [s.name, s.real]), SERVICE_LIST.map((s) => [s.name, s.real]));
   assert.ok(known("email", "send") && known("payments", "status") && !known("email", "blast") && !known("fax", "send"));
 });
@@ -110,4 +112,44 @@ test("an app run by Grove: calls go to Grove with the app's secret, and say when
   } finally {
     globalThis.fetch = real;
   }
+});
+
+test("files: only safe kinds, a tidy name, a size limit, and nothing a browser would run", () => {
+  const f = checkFile({ name: "../My Photo (1).PNG", type: "image/png; charset=x", base64: "aGVsbG8=", public: true });
+  assert.deepEqual({ name: f.name, type: f.type, bytes: f.bytes.length, public: f.public }, { name: "My-Photo-1-.PNG", type: "image/png", bytes: 5, public: true });
+  for (const type of ["text/html", "image/svg+xml", "application/javascript"]) assert.throws(() => checkFile({ name: "x", type, base64: "aGVsbG8=" }), /can't be kept/, type);
+  assert.ok(FILE_TYPES.has("application/pdf"));
+  assert.throws(() => checkFile({ name: "x.png", type: "image/png", base64: "not base64!" }), /base64/);
+  assert.throws(() => checkFile({ name: "x.png", type: "image/png", base64: Buffer.alloc(MAX_FILE_BYTES + 1).toString("base64") }), /too (big|long)/);
+  assert.equal(appFileBytes(false), 100_000_000);
+});
+
+test("files: a public file has a plain address; a private one a link that runs out and can't be altered", () => {
+  const sign = (what: string) => `sig-of-${what}`.padEnd(40, "x");
+  const now = Date.UTC(2026, 10, 18, 10);
+  assert.equal(fileLink(SITE, { id: "f1", name: "a.png", public: true }, sign), `${SITE}/files/f1/a.png`);
+  const link = new URL(fileLink(SITE, { id: "f1", name: "a.pdf" }, sign, 60, now));
+  const until = link.searchParams.get("until")!, sig = link.searchParams.get("sig")!;
+  assert.equal(Number(until), now / 1000 + 3600);
+  assert.equal(linkGood("f1", until, sig, sign, now), true);
+  assert.equal(linkGood("f1", until, sig, sign, now + 3_600_001), false, "run out");
+  assert.equal(linkGood("f2", until, sig, sign, now), false, "another file");
+  assert.equal(linkGood("f1", String(Number(until) + 999), sig, sign, now), false, "a changed time");
+  assert.equal(linkGood("f1", undefined, undefined, sign, now), false);
+});
+
+test("files: an app can't keep more than its plan allows", async () => {
+  const pool = answering({ rows: [{ used: "99999999" }] });
+  await assert.rejects(keepFile(pool, "shop", { name: "a.png", type: "image/png", base64: "aGVsbG8=" }, "id", { site: SITE, paid: false, trial: false, sign: () => "s" }), /no room left/);
+});
+
+test("storage: requests are signed the S3 way, with the body's hash and the date in the scope", () => {
+  const env = { AWS_ACCESS_KEY_ID: "AKID", AWS_SECRET_ACCESS_KEY: "secret", AWS_REGION: "us-east-2" } as any;
+  const h = signed("PUT", new URL("https://s3.example/files/shop/abc"), new TextEncoder().encode("hello"), { "content-type": "text/plain" }, new Date("2026-11-18T10:00:00Z"), env);
+  assert.equal(h["x-amz-date"], "20261118T100000Z");
+  assert.equal(h["x-amz-content-sha256"], "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+  assert.match(h.authorization, /^AWS4-HMAC-SHA256 Credential=AKID\/20261118\/us-east-2\/s3\/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, Signature=[0-9a-f]{64}$/);
+  assert.equal((h as any).host, undefined);
+  const again = signed("PUT", new URL("https://s3.example/files/shop/abc"), new TextEncoder().encode("hello!"), { "content-type": "text/plain" }, new Date("2026-11-18T10:00:00Z"), env);
+  assert.notEqual(again.authorization, h.authorization);
 });

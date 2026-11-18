@@ -4,6 +4,8 @@ import { buildAssets } from "../scripts/build-assets.ts";
 
 export default defineConfig({
   auth: true,
+  // Where the files apps ask Grove to keep live. Private: Grove hands them out itself, at /files/.
+  buckets: { files: { access: "private" } },
   // Once a minute Grove wakes the apps that have a background job due.
   triggers: { "wake-apps": { type: "schedule", function: "grove", cron: "* * * * *", functionPath: "/cron/tick" } },
   functions: {

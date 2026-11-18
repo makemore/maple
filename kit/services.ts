@@ -1,5 +1,5 @@
-// Things an app gets with nothing for its maker to set up. Email and background work are real.
-// Payments, files, text messages, AI and PDFs are pretend versions until the real ones arrive.
+// Things an app gets with nothing for its maker to set up. Email, background work and files are real.
+// Payments, text messages, AI and PDFs are pretend versions until the real ones arrive.
 //
 // A pretend service takes the same input and gives back the same shape the real one will, with
 // `mock: true` and a note saying what did not really happen. Code written against it keeps working
@@ -33,10 +33,13 @@ export interface Services {
   };
   /** Real. Work that happens later or on a timer, kept in the app's own database. The work itself is one of the app's `jobs`. See tasks.ts. */
   tasks: Tasks;
-  /** Pretend for now. Keeping a file (a photo, a document) and getting a web address for it. */
+  /** Real. Keeping a file (a photo, a document) and getting a web address for it. Up to 4 MB each; images, PDFs, text, CSV, Word and Excel. */
   files: {
-    put(file: { name: string; type: string; base64: string; public?: boolean }): Promise<{ id: string; url: string; bytes: number } & Pretend>;
-    remove(id: string): Promise<{ id: string; removed: true } & Pretend>;
+    /** Keeps a file. With public true anyone with the address can open it; otherwise `url` is a private link that works for an hour. */
+    put(file: { name: string; type: string; base64: string; public?: boolean }): Promise<{ id: string; url: string; bytes: number; public?: boolean } & Pretend>;
+    /** A fresh link to a file kept earlier. For a private file it works for `minutes` (an hour unless said, a week at most). */
+    link(id: string, o?: { minutes?: number }): Promise<{ id: string; url: string } & Pretend>;
+    remove(id: string): Promise<{ id: string; removed: boolean } & Pretend>;
   };
   /** Pretend for now. Text messages to phones. */
   texts: {
@@ -57,7 +60,7 @@ export const SERVICE_LIST = [
   { name: "email", real: true, what: "Confirmations, reminders and notices, sent from your app." },
   { name: "payments", real: false, what: "Take a card payment on a page Grove hosts. No payment account to open." },
   { name: "tasks", real: true, what: "Do something later, or every morning, without anyone asking." },
-  { name: "files", real: false, what: "Keep uploads and photos, each with its own web address." },
+  { name: "files", real: true, what: "Keep uploads and photos, each with its own web address." },
   { name: "texts", real: false, what: "Send a text to a phone." },
   { name: "ai", real: false, what: "Sort, summarise or draft from what people typed." },
   { name: "pdf", real: false, what: "Invoices, certificates and anything to print." },
@@ -98,7 +101,7 @@ export function createServices(o: { grove?: string; secret?: string; trial?: boo
       every: () => Promise.reject(new Error("Background work isn't set up for this app.")),
       cancel: () => Promise.reject(new Error("Background work isn't set up for this app.")),
     },
-    files: { put: (file) => call("files", "put", file), remove: (id) => call("files", "remove", { id }) },
+    files: { put: (file) => call("files", "put", file), link: (id, o) => call("files", "link", { id, ...o }), remove: (id) => call("files", "remove", { id }) },
     texts: { send: (msg) => call("texts", "send", msg) },
     ai: { ask: (q) => call("ai", "ask", q) },
     pdf: { make: (doc) => call("pdf", "make", doc) },

@@ -491,7 +491,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
   <section class="wrap" id="services">
     <p class="kicker">Built in</p>
     <h2>The awkward parts, already done</h2>
-    <p class="intro">Normally these mean opening accounts, copying keys and reading manuals. In Grove your app just asks for them. Email and background work are real today. The rest can be built against now in a pretend mode that says clearly nothing real happened, and switch to the real thing as each arrives.</p>
+    <p class="intro">Normally these mean opening accounts, copying keys and reading manuals. In Grove your app just asks for them. Email, background work and file storage are real today. The rest can be built against now in a pretend mode that says clearly nothing real happened, and switch to the real thing as each arrives.</p>
     <ul class="cards services">
       ${SERVICE_LIST.map((x) => `<li><h3>${SERVICE_TITLES[x.name]}<span class="tag ${x.real ? "go" : "soon"}">${x.real ? "Ready" : "Pretend for now"}</span></h3><p>${x.what}</p></li>`).join("\n      ")}
     </ul>
