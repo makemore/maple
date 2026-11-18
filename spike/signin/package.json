@@ -1,0 +1,11 @@
+{
+  "name": "grove-signin-spike",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@better-auth/oauth-provider": "^1.7.25",
+    "better-auth": "^1.7.25",
+    "jose": "^6.2.17",
+    "pg": "^8.23.1"
+  }
+}
