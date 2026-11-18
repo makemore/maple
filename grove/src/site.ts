@@ -310,6 +310,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
       <ul>
         <li><a href="#how">How it works</a></li>
         <li><a href="#make">What people make</a></li>
+        <li><a href="#others">For others</a></li>
         <li><a href="#yours">It's yours</a></li>
         <li><a href="#price">Price</a></li>
         <li><a href="#connect">Add Grove</a></li>
@@ -455,6 +456,18 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
     </div>
   </section>
 
+  <section class="wrap" id="others">
+    <p class="kicker">For other people too</p>
+    <h2>Become a little app factory</h2>
+    <p class="intro">You don't have to stop at your own jobs. Make websites and apps for the businesses, clubs and people around you, and look after them from your chat.</p>
+    <ul class="cards">
+      <li><h3>Make it for them</h3><p>Hear what a business needs and build it in a conversation. Name their people, and they sign in and use it from their own assistant or its web pages.</p></li>
+      <li><h3>They ask, you ship</h3><p>Anyone using it can ask you for a change, right from their chat. You try it on a copy, then make it live.</p></li>
+      <li><h3>Charge what you like</h3><p>What you agree with them is your business. Grove takes no cut${paid ? `, and ${paid.price} covers up to ${paid.apps} of them with no Grove line on their pages` : ""}.</p></li>
+      <li><h3>Hand it over whenever</h3><p>The code and the information can be downloaded and given to them. It runs without you, and without Grove.</p></li>
+    </ul>
+  </section>
+
   <section class="wrap" id="get">
     <p class="kicker">What every app gets</p>
     <h2>Five parts, already put together</h2>
@@ -570,6 +583,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
         <details><summary>Who can see my information?</summary><p>Only the people you name for that app, after they sign in with a code sent to their email. Each app's information is kept apart from every other app's. See the <a href="/privacy">privacy page</a> for the detail.</p></details>
         <details><summary>Does it use up my Claude or ChatGPT allowance?</summary><p>Yes. Making and changing apps is work your assistant does, so it counts against your plan with them. Using an app is light; building one is heavier. Grove keeps count, tells you how big a job is, and stops to ask before a day's work gets large.</p></details>
         <details><summary>What if Grove gets something wrong?</summary><p>It will sometimes. That's why every change goes to a trial copy first and can be undone after. Check that an app does what you meant before you rely on it.</p></details>
+        <details><summary>Can I make things for other people or businesses?</summary><p>Yes, and we hope you do. You stay the maker: you name who can use it, they ask you for changes, and you can hand them the code and the information at any time. What you charge them is up to you.</p></details>
         <details><summary>Can I leave?</summary><p>Yes, with everything. You can download any app's code and take a copy of its information at any time, and the app runs without Grove.</p></details>
         <details><summary>Why is it invite-only?</summary><p>Grove is new, and each app is a real running program. We're letting people in gradually so it stays reliable for those already using it.</p></details>
       </div>

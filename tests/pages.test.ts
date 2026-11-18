@@ -23,7 +23,7 @@ test("front page: sound HTML with one main heading and the sections the menu lin
   const html = sitePage(MCP, 5);
   sound(html);
   assert.equal(html.match(/<h1[ >]/g)?.length, 1);
-  for (const id of ["main", "how", "make", "get", "yours", "safe", "connect", "chatgpt", "price", "faq", "invite"]) assert.match(html, new RegExp(`id="${id}"`), id);
+  for (const id of ["main", "how", "make", "others", "get", "yours", "safe", "connect", "chatgpt", "price", "faq", "invite"]) assert.match(html, new RegExp(`id="${id}"`), id);
   for (const [, target] of html.matchAll(/href="#([a-z-]+)"/g)) assert.match(html, new RegExp(`id="${target}"`), `#${target} goes somewhere`);
 });
 
