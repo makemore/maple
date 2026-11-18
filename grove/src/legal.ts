@@ -4,7 +4,7 @@
 import type { Pool } from "pg";
 import { shell } from "./site.ts";
 
-export const TERMS_VERSION = "2026-11-17";
+export const TERMS_VERSION = "2026-11-18";
 
 export const LEGAL_SCHEMA = `
 create table if not exists acceptances (
@@ -52,6 +52,14 @@ export const termsPage = () =>
     <li>Store or share material that is illegal, or that sexualises children. We report the latter to the authorities.</li>
     <li>Get around the limits of your plan, for example by making several accounts.</li>
   </ul>
+  <h2>Copying a website or other material</h2>
+  <ul>
+    <li>Only import or copy a website, pictures, text or data that you own, or that you have the owner's permission to use. Before a copied website goes live, Grove asks you to show the site is yours.</li>
+    <li>If you think an app made with Grove uses your copyright material, or copies your website, without permission, tell us at ${contact() ? `<a href="mailto:${contact()}">${contact()}</a>` : "the contact address above"} or through the <a href="/report">report page</a>. Say which app, what the material is, and that you own it or act for the owner. We look at every notice, usually take the material down or pause the app while we do, and tell the app's maker, who can reply if they think we got it wrong.</li>
+    <li>We close the accounts of people who do this repeatedly.</li>
+  </ul>
+  <h2>Reporting abuse</h2>
+  <p>To report an app that is tricking people, sending spam or doing harm, use the <a href="/report">report page</a>${contact() ? ` or write to <a href="mailto:${contact()}">${contact()}</a>` : ""}. A person reads every report.</p>
   <p>We may pause or remove an app, or close an account, that breaks these rules. Where we reasonably can, we tell you first and give you time to take your code and information.</p>
   <h2>Plans and payment</h2>
   <ul>
