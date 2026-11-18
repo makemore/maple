@@ -323,12 +323,13 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
 
 <main id="main">
   <section class="wrap hero">
-    <p class="kicker">Websites and apps, made by asking</p>
+    <p class="kicker">Your own little app factory</p>
     <h1>Say what you need. Get a website or app that does it.</h1>
-    <p class="lede">Grove turns a conversation with Claude, ChatGPT or any AI assistant into a real working website or app: its own database, its own pages and tools, sign-in for your people. You never write code.</p>
+    <p class="lede">Grove turns a conversation with Claude, ChatGPT or any AI assistant into a real working website or app, with its own database, pages, tools and sign-in. Make them for yourself, or for the businesses and people around you. You never write code.</p>
     <div class="actions">
       <a class="btn" href="#invite">Ask for an invite</a>
       <a class="btn quiet" href="#how">See how it works</a>
+      <a class="btn quiet" href="#others">Make them for others</a>
     </div>
     <p class="already">Already invited? <a href="${claudeLink(connect)}">Add Grove to Claude</a> or <a href="#chatgpt">add Grove to ChatGPT</a>.</p>
   </section>
@@ -445,11 +446,12 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
           </ul>
         </div>
         <div class="no">
-          <h3>Not what it's for</h3>
+          <h3>Not yet</h3>
           <ul>
-            <li>A big online shop, or a busy site with thousands of visitors at once</li>
+            <li>Taking card payments. Coming, built in, with nothing for you to set up</li>
+            <li>Work that runs on a timer or in the background. Coming too</li>
             <li>Phone apps you get from an app store</li>
-            <li>Card payments, medical records, or anything where a mistake is serious</li>
+            <li>Medical records, or anything where a mistake could hurt someone</li>
           </ul>
         </div>
       </div>
@@ -460,7 +462,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
     <p class="kicker">For other people too</p>
     <h2>Become a little app factory</h2>
     <p class="intro">You don't have to stop at your own jobs. Make websites and apps for the businesses, clubs and people around you, and look after them from your chat.</p>
-    <ul class="cards">
+    <ul class="cards two">
       <li><h3>Make it for them</h3><p>Hear what a business needs and build it in a conversation. Name their people, and they sign in and use it from their own assistant or its web pages.</p></li>
       <li><h3>They ask, you ship</h3><p>Anyone using it can ask you for a change, right from their chat. You try it on a copy, then make it live.</p></li>
       <li><h3>Charge what you like</h3><p>What you agree with them is your business. Grove takes no cut${paid ? `, and ${paid.price} covers up to ${paid.apps} of them with no Grove line on their pages` : ""}.</p></li>
