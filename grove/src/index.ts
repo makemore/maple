@@ -22,7 +22,7 @@ import * as runner from "./runner.ts";
 import { deleteObject, getObject, putObject } from "./storage.ts";
 import { OWNER_SCHEMA, owns } from "./owner.ts";
 import { shell } from "./site.ts";
-import { importTools } from "./tools-import.ts";
+import { importTools, runImports } from "./tools-import.ts";
 import { adminTools } from "./tools-admin.ts";
 import { DOMAINS_SCHEMA, domainTools } from "./tools-domains.ts";
 import { watchErrors } from "./errors.ts";
@@ -195,6 +195,33 @@ async function pauseApp(a: any, why: string) {
 
 const SWITCH = "Neon can take a minute or two to switch to a new version";
 
+/**
+ * Checks and saves the files as the newest version of a change, and puts it up as a preview on its own copy
+ * of the database. who is the person the change is for: their build limit applies, and they're its author.
+ */
+async function previewAs(who: { email: string; isMaker: boolean }, a: any, change: string, ch: any, files: Files, message: string) {
+  notPaused(a);
+  // Each open change has a preview with its own copy of the database, and Neon allows ten copies per app.
+  if (!ch) {
+    const { rows: [{ n }] } = await pool.query("select count(*)::int n from changes where app = $1", [a.slug]);
+    if (n >= MAX_OPEN_CHANGES) throw new Error(`${a.slug} already has ${n} open changes, which is the most an app can have. Ship or drop one first (app_status lists them).`);
+  }
+  if (!who.isMaker) await underBuildLimit(pool, who.email, (await planFor(pool, who.email)).plan === "paid");
+  const archive = await built(files);
+  const version = await save(a.slug, files, message, who.email);
+  for (const c of concerns(files)) await report(pool, a.slug, c, "Grove check");
+  let branch = ch?.branch_id;
+  if (!branch && onRunner(a)) await runner.copy(a.slug, (branch = runner.trialName(a.slug, change)));
+  branch ??= await createBranch(a.neon_project_id, `preview-${change}`, a.branch_id);
+  await pool.query(
+    "insert into changes (app, name, version, base, branch_id) values ($1, $2, $3, $4, $5) on conflict (app, name) do update set version = $3, branch_id = $5, updated_at = now()",
+    [a.slug, change, version, a.live, branch],
+  );
+  const url = await putUp(a, branch, archive, version);
+  await pool.query("update changes set url = $3 where app = $1 and name = $2", [a.slug, change, url]);
+  return { change, version, status: "saved", preview: url, previewConnect: url + "/mcp", next: `${SWITCH}; change_status says when the preview shows this version. Show the person the preview, and ship_change when they say so.` };
+}
+
 function tools(server: McpServer, ctx: Ctx) {
   const { json, person } = ctx;
 
@@ -263,28 +290,7 @@ function tools(server: McpServer, ctx: Ctx) {
   };
 
   /** Checks and saves the files as the newest version of a change, and puts it up as a preview on its own copy of the database. */
-  const preview = async (a: any, change: string, ch: any, files: Files, message: string) => {
-    notPaused(a);
-    // Each open change has a preview with its own copy of the database, and Neon allows ten copies per app.
-    if (!ch) {
-      const { rows: [{ n }] } = await pool.query("select count(*)::int n from changes where app = $1", [a.slug]);
-      if (n >= MAX_OPEN_CHANGES) throw new Error(`${a.slug} already has ${n} open changes, which is the most an app can have. Ship or drop one first (app_status lists them).`);
-    }
-    if (!ctx.isMaker) await underBuildLimit(pool, person.email, (await planFor(pool, person.email)).plan === "paid");
-    const archive = await built(files);
-    const version = await save(a.slug, files, message, person.email);
-    for (const c of concerns(files)) await report(pool, a.slug, c, "Grove check");
-    let branch = ch?.branch_id;
-    if (!branch && onRunner(a)) await runner.copy(a.slug, (branch = runner.trialName(a.slug, change)));
-    branch ??= await createBranch(a.neon_project_id, `preview-${change}`, a.branch_id);
-    await pool.query(
-      "insert into changes (app, name, version, base, branch_id) values ($1, $2, $3, $4, $5) on conflict (app, name) do update set version = $3, branch_id = $5, updated_at = now()",
-      [a.slug, change, version, a.live, branch],
-    );
-    const url = await putUp(a, branch, archive, version);
-    await pool.query("update changes set url = $3 where app = $1 and name = $2", [a.slug, change, url]);
-    return { change, version, status: "saved", preview: url, previewConnect: url + "/mcp", next: `${SWITCH}; change_status says when the preview shows this version. Show the person the preview, and ship_change when they say so.` };
-  };
+  const preview = (a: any, change: string, ch: any, files: Files, message: string) => previewAs({ email: person.email, isMaker: ctx.isMaker }, a, change, ch, files, message);
 
   /**
    * The checks a change passes before it goes live: no clear signs of a scam in the code, no links to sites
@@ -544,7 +550,7 @@ function tools(server: McpServer, ctx: Ctx) {
 
   domainTools(server, { pool, ctx, appFor, mustAgree, notPaused });
   adminTools(server, { pool, ctx, init, appFor, makerOnly, pause, putUpAgain });
-  importTools(server, { pool, ctx, site, sign, appFor, init, mustAgree, notPaused, changeName, filesOf, preview });
+  importTools(server, { pool, ctx, site, sign, appFor, init, mustAgree, notPaused, changeName, filesOf, preview, previewAs });
 
 
   server.registerTool(
@@ -1040,6 +1046,8 @@ function routes(app: import("hono").Hono<any>) {
     if (runner.runnerOn()) waitUntil(fetch(`${process.env.RUNNER_URL!.replace(/\/$/, "")}/runner/health`, { signal: AbortSignal.timeout(20_000) }).catch(() => undefined));
     const woken = await wakeDue(pool, appSecret);
     if (await due(pool, "prune")) waitUntil(prune(pool).then((r) => console.log("pruned", JSON.stringify(r)), (e) => console.error("prune failed:", e)));
+    // Imports waiting to start, or cut short when Grove restarted.
+    waitUntil(runImports({ pool, site, sign, changeName, filesOf, previewAs }).catch((e) => console.error("running imports:", e)));
     // Once a day, a summary for Grove's makers: the funnel and anything that needs a look.
     if (await due(pool, "digest", "1 day"))
       waitUntil((async () => {

@@ -30,36 +30,133 @@ export type ImportDeps = {
   filesOf: (version: number | string) => Promise<Files>;
   /** Checks and saves files as the newest version of a change, and puts up its preview. */
   preview: (a: any, change: string, ch: any, files: Files, message: string) => Promise<{ next: string } & Record<string, unknown>>;
+  previewAs: RunDeps["previewAs"];
 };
 
+/** What a queued import needs to run with nobody in the chat: the same, less the person's session. */
+export type RunDeps = Pick<ImportDeps, "pool" | "site" | "sign" | "changeName" | "filesOf"> & {
+  previewAs: (who: { email: string; isMaker: boolean }, a: any, change: string, ch: any, files: Files, message: string) => Promise<{ next: string } & Record<string, unknown>>;
+};
+
+/** The files of a change (or the shipped code), and the change itself if it exists. */
+async function startingPoint(d: Pick<RunDeps, "pool" | "changeName" | "filesOf">, a: any, change: string) {
+  const { rows: [ch] } = await d.pool.query("select * from changes where app = $1 and name = $2", [a.slug, d.changeName(change)]);
+  return { ch, files: await d.filesOf(ch ? ch.version : a.live) };
+}
+
+/** Puts src/imported/index.ts together and connects it to src/app.ts. */
+function wired(files: Files) {
+  const out: Files = { ...files, "src/imported/index.ts": importedIndex(files) };
+  const w = wire(out["src/app.ts"] ?? "", { home: Boolean(files["src/imported/site.ts"]) && /"path":"\/"/.test(Object.entries(files).filter(([p]) => /^src\/imported\/pages-/.test(p)).map(([, c]) => c).join("")) });
+  if (out["src/app.ts"]) out["src/app.ts"] = w.code;
+  return { files: out, wiring: { done: w.done, leftToDo: w.todo } };
+}
+
+/** The upload a name means: "latest" is the newest for the app, worked out once so a restarted import reads the same file. */
+async function uploadRow(pool: Pool, a: any, id: string) {
+  const { rows: [u] } = await pool.query(id === "latest" ? "select * from uploads where app = $1 order by at desc limit 1" : "select * from uploads where app = $1 and id::text = $2", id === "latest" ? [a.slug] : [a.slug, id]);
+  if (!u) throw new Error(`No upload ${id === "latest" ? "yet" : id} for ${a.slug}. upload_link gives a page to upload the file.`);
+  return u;
+}
+
+/** Reads an upload made through upload_link. */
+async function uploaded(pool: Pool, a: any, id: string) {
+  const u = await uploadRow(pool, a, id);
+  const res = await getObject(`imports/${a.slug}/${u.id}`);
+  if (!res) throw new Error("That upload has gone (uploads are kept for a week). Upload it again.");
+  return { id: u.id as string, name: u.name as string, text: await res.text() };
+}
+
+/** Whether one of the app's makers has shown they run a site (Grove's maker always counts). */
+const ownerOf = (pool: Pool, who: { email: string; isMaker: boolean }, a: any, host: string) => (who.isMaker ? Promise.resolve({ email: who.email, how: "Grove's maker" }) : owns(pool, a.makers, host));
+
+/**
+ * Runs one queued import with nobody in the chat. It claims the job first, so two copies of Grove never
+ * run the same one; a job cut short (Grove restarted part-way) is claimed again, once, by runImports.
+ */
+export async function runImport(d: RunDeps, id: number | string) {
+  const { pool, site, sign } = d;
+  const { rows: [job] } = await pool.query(
+    "update site_imports set status = 'running', attempts = attempts + 1, updated_at = now() where id = $1 and (status = 'queued' or (status = 'running' and attempts < 2 and updated_at < now() - interval '10 minutes')) returning *",
+    [id],
+  );
+  if (!job) return;
+  const step = (p: object) => pool.query("update site_imports set progress = $2, updated_at = now() where id = $1", [job.id, JSON.stringify(p)]).then(() => undefined);
+  const { url, upload, pages } = job.params as { url?: string; upload?: string; pages: number };
+  const change = job.change as string;
+  const who = { email: job.by_email as string, isMaker: Boolean(job.by_maker) };
+  const work = async () => {
+    const { rows: [a] } = await pool.query("select * from apps where slug = $1", [job.app]);
+    if (!a) throw new Error("The app has gone.");
+    if (a.paused_at) throw new Error("The app is paused.");
+    const paid = (await planFor(pool, a.makers[0])).plan === "paid";
+    const mine = url && (await ownerOf(pool, who, a, hostOf(url)));
+    const exportFile = upload ? await uploaded(pool, a, upload) : undefined;
+    const { ch, files: before } = await startingPoint(d, a, change);
+    const base = withoutOldSite(before);
+    const used = Object.values(base).reduce((n, c) => n + c.length, 0);
+    const limits: Limits = { pages, images: paid ? 1500 : 400, imageBytes: paid ? 600_000_000 : 60_000_000, codeBudget: Math.max(0, Math.floor((MAX_TOTAL - used) * 0.85) - 100_000), seconds: 180 };
+    if (limits.codeBudget < 50_000) throw new Error(`${a.slug} has no room left for imported pages. Remove some files, or import into a new app.`);
+    const s = url ? await crawl(url, limits, { owner: Boolean(mine), progress: step }) : fromExport(exportFile!.text, limits);
+    if (!url && sensitiveHost(s.source) && !(await ownerOf(pool, who, a, s.source))) throw new Error(`Grove doesn't copy ${s.source}.`);
+    if (!s.pages.length) throw new Error("No pages could be copied from that site.");
+    await step({ stage: "copying pictures and stylesheets", pages: s.pages.length });
+    await gather(s, { ...limits, seconds: 150 }, async (name, type, bytes) => {
+      if (!filesOn()) throw new Error("no file store");
+      return (await keepFile(pool, a.slug, { name, type, base64: Buffer.from(bytes).toString("base64"), public: true }, randomUUID(), { site, paid, trial: false, sign })).url;
+    }, step);
+    // Pages are measured as HTML, but kept as code: drop the last pages until it all fits.
+    let made = wired({ ...base, ...siteFiles(s) });
+    const size = (f: Files) => Object.values(f).reduce((n, c) => n + c.length, 0);
+    if (size(made.files) > MAX_TOTAL - 20_000 && s.posts.some((p) => p.content)) {
+      for (const p of s.posts) delete p.content;
+      made = wired({ ...base, ...siteFiles(s) });
+    }
+    while (size(made.files) > MAX_TOTAL - 20_000 && s.pages.length > 1) {
+      const drop = s.pages.splice(-Math.max(1, Math.ceil(s.pages.length / 10)));
+      s.skipped.push(...drop.map((p) => ({ url: p.path, why: "the app has no more room for pages" })));
+      made = wired({ ...base, ...siteFiles(s) });
+    }
+    const { files, wiring } = made;
+    await step({ stage: "checking the code and putting up a trial copy", pages: s.pages.length });
+    const out = await d.previewAs(who, a, change, ch, files, `Import ${s.pages.length} pages from ${s.source}`);
+    const owner = await ownerOf(pool, who, a, s.source);
+    return {
+      ...out,
+      source: s.source, madeWith: s.platform, pages: s.pages.length, posts: s.posts.length, pictures: s.images,
+      forms: s.forms.map((f) => ({ page: f.path, fields: f.forms.map((x) => x.fields.map((y) => y.label ?? y.name)) })),
+      leftBehind: s.removed.map((r) => ({ scripts: "scripts and trackers", forms: "forms (rebuild them: see src/imported/forms.ts)", embeds: "embeds from sites other than the usual video and map ones", plugins: "plugins" })[r] ?? r),
+      skipped: s.skipped.slice(0, 25), skippedCount: s.skipped.length, wiring,
+      yours: owner ? `yes (${owner.how})` : "not shown yet",
+      next: [
+        "Show the person the preview. Pages are at their old paths; anything the kit uses (like /account) moved under /site.",
+        s.forms.length ? "Rebuild the forms listed in src/imported/forms.ts as real features, one small change at a time." : "",
+        s.posts.length ? "The posts are data in src/imported/posts-*.ts: offer to turn them into a table with a blog page the person can add to by asking." : "",
+        wiring.leftToDo.length ? `Finish connecting it in src/app.ts: ${wiring.leftToDo.join("; ")}.` : "",
+        owner ? "ship_change when the person says so." : "Before it can ship, the person shows the site is theirs with verify_site.",
+      ].filter(Boolean),
+    };
+  };
+  await work().then(
+    (result) => pool.query("update site_imports set status = 'done', result = $2, updated_at = now() where id = $1", [job.id, JSON.stringify(result)]),
+    (e) => (console.error(`import ${job.id} failed:`, e), pool.query("update site_imports set status = 'failed', error = $2, updated_at = now() where id = $1", [job.id, String((e as Error)?.message ?? e).slice(0, 4000)])),
+  );
+}
+
+/** For Grove's one-minute timer: starts queued imports and picks up ones cut short. Gives up after two tries. */
+export async function runImports(d: RunDeps) {
+  await d.pool.query("update site_imports set status = 'failed', error = 'It stopped without finishing, twice. Try again, perhaps with fewer pages.', updated_at = now() where status = 'running' and attempts >= 2 and updated_at < now() - interval '10 minutes'");
+  const { rows } = await d.pool.query("select id from site_imports where status = 'queued' or (status = 'running' and attempts < 2 and updated_at < now() - interval '10 minutes') order by id limit 3");
+  await Promise.all(rows.map((r) => runImport(d, r.id)));
+  return rows.length;
+}
+
 export function importTools(server: McpServer, d: ImportDeps) {
-  const { pool, ctx, site, sign, appFor, init, mustAgree, notPaused, changeName, filesOf, preview } = d;
+  const deps = d;
+  const { pool, ctx, site, sign, appFor, init, mustAgree, notPaused, changeName, preview } = d;
   const { json, person } = ctx;
-
-  /** The files of a change (or the shipped code), and the change itself if it exists. */
-  const startingPoint = async (a: any, change: string) => {
-    const { rows: [ch] } = await pool.query("select * from changes where app = $1 and name = $2", [a.slug, changeName(change)]);
-    return { ch, files: await filesOf(ch ? ch.version : a.live) };
-  };
-
-  /** Puts src/imported/index.ts together and connects it to src/app.ts. */
-  const wired = (files: Files) => {
-    const out: Files = { ...files, "src/imported/index.ts": importedIndex(files) };
-    const w = wire(out["src/app.ts"] ?? "", { home: Boolean(files["src/imported/site.ts"]) && /"path":"\/"/.test(Object.entries(files).filter(([p]) => /^src\/imported\/pages-/.test(p)).map(([, c]) => c).join("")) });
-    if (out["src/app.ts"]) out["src/app.ts"] = w.code;
-    return { files: out, wiring: { done: w.done, leftToDo: w.todo } };
-  };
-
-  /** Reads an upload made through upload_link: the newest one for "latest". */
-  const uploaded = async (a: any, id: string) => {
-    const { rows: [u] } = await pool.query(id === "latest" ? "select * from uploads where app = $1 order by at desc limit 1" : "select * from uploads where app = $1 and id::text = $2", id === "latest" ? [a.slug] : [a.slug, id]);
-    if (!u) throw new Error(`No upload ${id === "latest" ? "yet" : id} for ${a.slug}. upload_link gives a page to upload the file.`);
-    const res = await getObject(`imports/${a.slug}/${u.id}`);
-    if (!res) throw new Error("That upload has gone (uploads are kept for a week). Upload it again.");
-    return { name: u.name as string, text: await res.text() };
-  };
-
-  const ownerOfSource = async (a: any, host: string) => ctx.isMaker ? { email: person.email, how: "Grove's maker" } : owns(pool, a.makers, host);
+  const who = { email: person.email, isMaker: ctx.isMaker };
+  const ownerOfSource = (a: any, host: string) => ownerOf(pool, who, a, host);
 
   server.registerTool(
     "survey_site",
@@ -145,68 +242,22 @@ export function importTools(server: McpServer, d: ImportDeps) {
       await mustAgree();
       notPaused(a);
       if (!url === !upload) throw new Error("Give either url (the live site) or upload (an export file), not both.");
-      const { rows: [busy] } = await pool.query("select id from site_imports where app = $1 and status = 'running' and updated_at > now() - interval '10 minutes'", [a.slug]);
+      const { rows: [busy] } = await pool.query("select id from site_imports where app = $1 and status in ('queued', 'running') and updated_at > now() - interval '15 minutes'", [a.slug]);
       if (busy) throw new Error(`An import into ${a.slug} is already running. import_status says how it's going.`);
-      const exportFile = upload ? await uploaded(a, upload) : undefined;
+      const exportFile = upload ? await uploadRow(pool, a, upload) : undefined;
       const host = url ? hostOf(url) : undefined;
       const mine = host && (await ownerOfSource(a, host));
       const why = host && sensitiveHost(host);
       if (why && !mine) throw new Error(`Grove doesn't copy ${host}: it looks like ${why}.`);
       const paid = (await planFor(pool, a.makers[0])).plan === "paid";
       if (!ctx.isMaker) await underBuildLimit(pool, person.email, paid);
-      const { rows: [job] } = await pool.query("insert into site_imports (app, change, source, kind, by_email) values ($1, $2, $3, $4, $5) returning id", [a.slug, changeName(change), host ?? exportFile!.name, url ? "site" : "export", person.email]);
-      const step = (p: object) => pool.query("update site_imports set progress = $2, updated_at = now() where id = $1", [job.id, JSON.stringify(p)]).then(() => undefined);
-      const work = async () => {
-        const { ch, files: before } = await startingPoint(a, change);
-        const base = withoutOldSite(before);
-        const used = Object.values(base).reduce((n, c) => n + c.length, 0);
-        const limits: Limits = { pages, images: paid ? 1500 : 400, imageBytes: paid ? 600_000_000 : 60_000_000, codeBudget: Math.max(0, Math.floor((MAX_TOTAL - used) * 0.85) - 100_000), seconds: 180 };
-        if (limits.codeBudget < 50_000) throw new Error(`${a.slug} has no room left for imported pages. Remove some files, or import into a new app.`);
-        const s = url ? await crawl(url, limits, { owner: Boolean(mine), progress: step }) : fromExport(exportFile!.text, limits);
-        if (!url && sensitiveHost(s.source) && !(await ownerOfSource(a, s.source))) throw new Error(`Grove doesn't copy ${s.source}.`);
-        if (!s.pages.length) throw new Error("No pages could be copied from that site.");
-        await step({ stage: "copying pictures and stylesheets", pages: s.pages.length });
-        await gather(s, { ...limits, seconds: 150 }, async (name, type, bytes) => {
-          if (!filesOn()) throw new Error("no file store");
-          return (await keepFile(pool, a.slug, { name, type, base64: Buffer.from(bytes).toString("base64"), public: true }, randomUUID(), { site, paid, trial: false, sign })).url;
-        }, step);
-        // Pages are measured as HTML, but kept as code: drop the last pages until it all fits.
-        let made = wired({ ...base, ...siteFiles(s) });
-        const size = (f: Files) => Object.values(f).reduce((n, c) => n + c.length, 0);
-        if (size(made.files) > MAX_TOTAL - 20_000 && s.posts.some((p) => p.content)) {
-          for (const p of s.posts) delete p.content;
-          made = wired({ ...base, ...siteFiles(s) });
-        }
-        while (size(made.files) > MAX_TOTAL - 20_000 && s.pages.length > 1) {
-          const drop = s.pages.splice(-Math.max(1, Math.ceil(s.pages.length / 10)));
-          s.skipped.push(...drop.map((p) => ({ url: p.path, why: "the app has no more room for pages" })));
-          made = wired({ ...base, ...siteFiles(s) });
-        }
-        const { files, wiring } = made;
-        await step({ stage: "checking the code and putting up a trial copy", pages: s.pages.length });
-        const out = await preview(a, change, ch, files, `Import ${s.pages.length} pages from ${s.source}`);
-        const owner = await ownerOfSource(a, s.source);
-        return {
-          ...out,
-          source: s.source, madeWith: s.platform, pages: s.pages.length, posts: s.posts.length, pictures: s.images,
-          forms: s.forms.map((f) => ({ page: f.path, fields: f.forms.map((x) => x.fields.map((y) => y.label ?? y.name)) })),
-          leftBehind: s.removed.map((r) => ({ scripts: "scripts and trackers", forms: "forms (rebuild them: see src/imported/forms.ts)", embeds: "embeds from sites other than the usual video and map ones", plugins: "plugins" })[r] ?? r),
-          skipped: s.skipped.slice(0, 25), skippedCount: s.skipped.length, wiring,
-          yours: owner ? `yes (${owner.how})` : "not shown yet",
-          next: [
-            "Show the person the preview. Pages are at their old paths; anything the kit uses (like /account) moved under /site.",
-            s.forms.length ? "Rebuild the forms listed in src/imported/forms.ts as real features, one small change at a time." : "",
-            s.posts.length ? "The posts are data in src/imported/posts-*.ts: offer to turn them into a table with a blog page the person can add to by asking." : "",
-            wiring.leftToDo.length ? `Finish connecting it in src/app.ts: ${wiring.leftToDo.join("; ")}.` : "",
-            owner ? "ship_change when the person says so." : "Before it can ship, the person shows the site is theirs with verify_site.",
-          ].filter(Boolean),
-        };
-      };
-      waitUntil(work().then(
-        (result) => pool.query("update site_imports set status = 'done', result = $2, updated_at = now() where id = $1", [job.id, JSON.stringify(result)]),
-        (e) => (console.error(`import ${job.id} failed:`, e), pool.query("update site_imports set status = 'failed', error = $2, updated_at = now() where id = $1", [job.id, String((e as Error)?.message ?? e).slice(0, 4000)])),
-      ));
-      return json({ import: job.id, status: "running", change, next: "It runs in the background, usually for a minute or two. Call import_status for progress and the preview address. Meanwhile tell the person what's happening." });
+      // Queued, then started straight away; Grove's timer picks it up again if it's cut short.
+      const { rows: [job] } = await pool.query(
+        "insert into site_imports (app, change, source, kind, by_email, by_maker, params, status) values ($1, $2, $3, $4, $5, $6, $7, 'queued') returning id",
+        [a.slug, changeName(change), host ?? exportFile!.name, url ? "site" : "export", person.email, ctx.isMaker, JSON.stringify({ url, upload: exportFile?.id, pages })],
+      );
+      waitUntil(runImport(d, job.id));
+      return json({ import: job.id, status: "running", change, next: "It runs in the background, usually for a minute or two, and starts again by itself if it's cut short. Call import_status for progress and the preview address. Meanwhile tell the person what's happening." });
     },
   );
 
@@ -220,10 +271,9 @@ export function importTools(server: McpServer, d: ImportDeps) {
     },
     async ({ app: slug }) => {
       const a = await appFor(ctx, slug);
-      await pool.query("update site_imports set status = 'failed', error = 'It stopped without finishing. Try again, perhaps with fewer pages.' where app = $1 and status = 'running' and updated_at < now() - interval '10 minutes'", [a.slug]);
       const { rows } = await pool.query("select id, change, source, kind, status, progress, result, error, started_at, updated_at from site_imports where app = $1 order by id desc limit 3", [a.slug]);
       if (!rows.length) return json({ app: slug, imports: [], note: "Nothing has been imported into this app." });
-      return json({ app: slug, imports: rows.map((r) => (r.status === "running" ? { id: r.id, status: r.status, progress: r.progress, started: r.started_at, note: "Still going. Check again in half a minute." } : r.status === "failed" ? { id: r.id, status: r.status, source: r.source, why: r.error } : { id: r.id, status: r.status, ...r.result })) });
+      return json({ app: slug, imports: rows.map((r) => (r.status === "running" || r.status === "queued" ? { id: r.id, status: r.status, progress: r.progress, started: r.started_at, note: "Still going. Check again in half a minute." } : r.status === "failed" ? { id: r.id, status: r.status, source: r.source, why: r.error } : { id: r.id, status: r.status, ...r.result })) });
     },
   );
 
@@ -257,11 +307,11 @@ export function importTools(server: McpServer, d: ImportDeps) {
         text = r.text();
       }
       if (upload) {
-        const u = await uploaded(a, upload);
+        const u = await uploaded(pool, a, upload);
         if (/\.xlsx?$/i.test(u.name)) throw new Error("That's an Excel file. Save it as CSV (File, Save as, CSV) and upload that.");
         text = u.text;
       }
-      const { ch, files: before } = await startingPoint(a, change);
+      const { ch, files: before } = await startingPoint(deps, a, change);
       if (before[`src/imported/data-${table}-1.ts`]) throw new Error(`${table} was imported into this app already. Pick another table name, or remove src/imported/data-${table}-*.ts first.`);
       if (new RegExp(`create table if not exists ${table}\\b`).test(Object.values(before).join("\n"))) throw new Error(`The app already has a table called ${table}. Pick another name.`);
       const d = dataFiles(table, text!);

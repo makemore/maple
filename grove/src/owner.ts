@@ -11,6 +11,9 @@ create table if not exists site_imports (
   status text not null default 'running', progress jsonb not null default '{}', result jsonb, error text,
   started_at timestamptz not null default now(), updated_at timestamptz not null default now());
 create index if not exists site_imports_app on site_imports (app, id);
+alter table site_imports add column if not exists params jsonb not null default '{}';
+alter table site_imports add column if not exists by_maker boolean not null default false;
+alter table site_imports add column if not exists attempts int not null default 0;
 create table if not exists uploads (
   id uuid primary key, app text not null, name text not null, type text not null, bytes integer not null, by_email text, at timestamptz not null default now());`;
 
