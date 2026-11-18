@@ -51,7 +51,9 @@ async function rpc(method: string, params: object) {
 /** Calls a tool. Returns its answer as JSON when it is JSON, or as text. */
 async function call(name: string, args: object = {}) {
   const r = await rpc("tools/call", { name, arguments: args });
-  const text = (r.content ?? []).map((x: any) => x.text ?? "").join("\n");
+  const texts: string[] = (r.content ?? []).map((x: any) => x.text ?? "");
+  // Grove adds a line on how to answer the person, for assistants: not part of the answer.
+  const text = texts.filter((t) => !t.startsWith("How to answer:")).join("\n");
   if (r.isError) fail(`${name}: ${text}`);
   try {
     return JSON.parse(text);
