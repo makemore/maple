@@ -111,7 +111,7 @@ test("an app run by Grove: calls go to Grove with the app's secret, and say when
   try {
     const s = createServices({ grove: SITE, secret: "shh", trial: true });
     await s.tasks.later("remind", { order: 4 }, { inMinutes: 5 });
-    assert.deepEqual(seen[0], [`${SITE}/api/services/tasks/later`, "Bearer shh", { name: "remind", payload: { order: 4 }, inMinutes: 5, trial: true }]);
+    assert.deepEqual(seen[0], [`${SITE}/services/tasks/later`, "Bearer shh", { name: "remind", payload: { order: 4 }, inMinutes: 5, trial: true }]);
     globalThis.fetch = (async () => new Response(JSON.stringify({ error: "This app has sent all the emails it can today (50)." }), { status: 429 })) as any;
     await assert.rejects(s.email.send({ to: "a@b.co", subject: "s", text: "t" }), /all the emails it can today/);
   } finally {

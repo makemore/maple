@@ -762,7 +762,7 @@ function routes(app: import("hono").Hono<any>) {
   });
 
   // What apps ask Grove to do for them. Each app proves who it is with its own secret, as for /api/notify.
-  app.post("/api/services/:service/:action", async (c) => {
+  app.post("/services/:service/:action", async (c) => {
     const { service, action } = c.req.param();
     const secret = (c.req.header("authorization") ?? "").replace(/^Bearer /i, "");
     if (!secret) return c.json({ error: "No app secret." }, 401);

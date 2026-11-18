@@ -86,7 +86,7 @@ export function createServices(o: { grove?: string; secret?: string; trial?: boo
       }
       return { id: `local-${Date.now()}`, mock: true, note: `Pretend: this app isn't run by Grove, so ${service} needs setting up by whoever runs it.`, ...(body as object) };
     }
-    const res = await fetch(`${o.grove}/api/services/${service}/${action}`, {
+    const res = await fetch(`${o.grove}/services/${service}/${action}`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${o.secret}` },
       body: JSON.stringify({ ...(body as object), trial: Boolean(o.trial) }),
