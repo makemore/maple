@@ -21,3 +21,10 @@ A provider turns `maple.json` into running parts. Three are described here; none
   exported, people sign in again and reconnect their assistant once.
 - Code: swap the provider files (auth check, job check, pool setup); see SPEC section 9.
 - Domain: change the DNS record.
+
+## Leaving Grove
+
+Every app Grove makes carries `LEAVING.md`: what Grove supplies while it hosts the app (sign-in, email,
+background jobs, files, the pretend services) and what to set up instead. In short, an app needs
+`DATABASE_URL`, Neon Auth, `PUBLIC_URL`, `POSTMARK_TOKEN` for email and something calling
+`/maple/tick` once a minute for jobs. Files and the pretend services have no stand-in outside Grove yet.

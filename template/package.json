@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "check": "tsc --noEmit && node --test src/",
-    "dev": "neon dev"
+    "dev": "neon dev",
+    "start": "node serve.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
