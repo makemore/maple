@@ -291,7 +291,7 @@ const table = (step: number, name: string, columns: string[], read = false) =>
  * paid is the paid plan when there is one, and repo is where the code is public (the page only says
  * "open source" when it has somewhere to send people to read it).
  */
-export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: string) => `<!doctype html>
+export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: string, freeMax = Math.max(free, 100)) => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -409,9 +409,9 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
   <div class="wrap">
     <ul class="facts">
       <li><strong>About 20 seconds</strong><span>from your sentence to something live</span></li>
-      <li><strong>Its own database</strong><span>one per website or app, private to it</span></li>
+      <li><strong>Its own private data</strong><span>kept apart from every other app's</span></li>
       <li><strong>Real code you can keep</strong><span>download it whenever you like</span></li>
-      <li><strong>Free for ${free} apps</strong><span>no card needed</span></li>
+      <li><strong>${free} apps free</strong><span>${freeMax > free ? `up to ${freeMax} by asking, ` : ""}no card needed</span></li>
     </ul>
   </div>
 
@@ -469,7 +469,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
     <ul class="cards two">
       <li><h3>Make it for them</h3><p>Hear what a business needs and build it in a conversation. Name their people, and they sign in and use it from their own assistant or its web pages.</p></li>
       <li><h3>They ask, you ship</h3><p>Anyone using it can ask you for a change, right from their chat. You try it on a copy, then make it live.</p></li>
-      <li><h3>Charge what you like</h3><p>What you agree with them is your business. Grove takes no cut${paid ? `, and ${paid.price} covers up to ${paid.apps} of them with no Grove line on their pages` : ""}.</p></li>
+      <li><h3>Charge what you like</h3><p>What you agree with them is your business. Grove takes no cut. The first ${freeMax} cost you nothing${paid ? `, and ${paid.price} takes the Grove line off all of them` : ""}.</p></li>
       <li><h3>Hand it over whenever</h3><p>The code and the information can be downloaded and given to them. It runs without you, and without Grove.</p></li>
     </ul>
   </section>
@@ -481,7 +481,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
     <ul class="cards">
       <li><h3><span class="letter">M</span>Lives in your assistant</h3><p>You make it and run it by chatting. So do the people you share it with, each in their own assistant. Its web pages are there for everyone else.</p></li>
       <li><h3><span class="letter">A</span>Sign-in without passwords</h3><p>A code arrives by email. Only the people you name get in.</p></li>
-      <li><h3><span class="letter">P</span>Its own database</h3><p>Your information is kept in a proper database that belongs to that one app.</p></li>
+      <li><h3><span class="letter">P</span>Its own database</h3><p>Your information is kept in a proper Postgres database, in a part of it only that one app can reach.</p></li>
       <li><h3><span class="letter">L</span>A way to ask for more</h3><p>Anyone using the app can ask its maker for a change, right in the chat.</p></li>
       <li><h3><span class="letter">E</span>Email built in</h3><p>For sign-in codes and for those requests. Nothing to set up.</p></li>
       <li><h3><span class="letter">+</span>Trial copies and undo</h3><p>Grove adds these on top: every change is tried first, and anything shipped can be taken back.</p></li>
@@ -504,7 +504,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
       <p class="intro">Most tools that make apps for you keep them. Grove makes ordinary code with an ordinary database, and hands you both whenever you ask.</p>
       <ul class="cards two">
         <li><h3>Take the code</h3><p>Ask Grove for a download and you get the whole app as files any developer can read and run.</p></li>
-        <li><h3>Take the information</h3><p>Each app has its own database, and you can take a full copy of it at any time.</p></li>
+        <li><h3>Take the information</h3><p>Each app's information is kept apart, and you can take a full copy of it at any time.</p></li>
         <li><h3>Run it elsewhere</h3><p>An app is a standard MAPLE app. It doesn't need Grove to keep working, so you can host it yourself.</p></li>
         <li><h3>${repo ? "Open source" : "An open format"}</h3><p>${repo ? `Both are open source. MAPLE, the part every app is made from, is under the MIT licence, so your apps are yours without conditions. Grove itself is under the AGPL: run your own, and share what you change.</p><p><a class="btn small gh" href="${repo}">${GITHUB_SVG} Grove and MAPLE on GitHub</a>` : "MAPLE is an open format with a published set of rules, so an app made here isn't tied to this company or this site."}</p></li>
       </ul>
@@ -557,32 +557,37 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
 
   <section class="wrap" id="price">
     <p class="kicker">Price</p>
-    <h2>Free to start. One simple plan if you need more.</h2>
+    <h2>Generously free. Pay only for more.</h2>
+    <p class="intro">Free isn't a trial. Make real websites and apps, keep them running, and share them, without a card. The paid plan is for people who outgrow it.</p>
     <div class="prices">
       <div class="price">
         <h3>Free</h3>
         <p class="big">£0</p>
         <ul>
-          <li>Up to ${free} small apps</li>
-          <li>Share each one with the people you choose</li>
-          <li>Trial copies, undo and requests included</li>
+          <li>${free} websites and apps to start${freeMax > free ? `, and up to ${freeMax} just by asking` : ""}</li>
+          <li>A real database, web pages, sign-in, email, background work and file storage in every one</li>
+          <li>Share each one with the people you choose, or make its pages public</li>
+          <li>Trial copies, undo and change requests included</li>
+          <li>Take the code and the information away whenever you like</li>
           <li>A small "Made with Grove" line on each app's pages</li>
         </ul>
-        <p>No card needed.</p>
+        <p>No card needed. Fair limits apply to each app, so one busy app can't spoil it for everyone.</p>
       </div>
       ${paid ? `<div class="price best">
         <h3>Plus</h3>
         <p class="big">${paid.price}</p>
         <ul>
-          <li>Up to ${paid.apps} small apps</li>
           <li>Everything in Free</li>
           <li>No Grove line on your apps' pages</li>
-          <li>Cancel whenever you like</li>
+          <li>Up to ${paid.apps} websites and apps</li>
+          <li>New apps get a database of their own, with no monthly cap</li>
+          <li>Ten times the email, and far more room for files</li>
+          <li>Background work as often as every 15 minutes</li>
         </ul>
-        <p>To move up, say "upgrade my plan" to Grove in your chat. It gives you a link to pay safely with Stripe.</p>
+        <p>To move up, say "upgrade my plan" to Grove in your chat. It gives you a link to pay safely with Stripe. Cancel whenever you like.</p>
       </div>` : `<div class="price">
         <h3>Later</h3>
-        <p>A paid plan for more apps will come later. We'll tell you well before anything changes.</p>
+        <p>A paid plan with higher limits will come later. We'll tell you well before anything changes.</p>
       </div>`}
     </div>
     <p class="note" style="margin-top:1.5rem">You also need an AI assistant that can connect to outside apps, such as Claude or ChatGPT. That is separate from Grove.</p>

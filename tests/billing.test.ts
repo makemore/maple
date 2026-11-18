@@ -60,12 +60,26 @@ test("billing is only on with both a key and a price", () => {
 });
 
 test("plan: free by default, paid while the subscription is good", async () => {
-  assert.deepEqual(await planFor(fakePool(), "a@b.c"), { plan: "free", apps: 5, customer: undefined, status: "none" });
-  assert.equal((await planFor(fakePool([{ customer: "cus_1", status: "active" }]), "a@b.c")).apps, 25);
+  assert.deepEqual(await planFor(fakePool(), "a@b.c"), { plan: "free", apps: 25, customer: undefined, status: "none" });
+  assert.equal((await planFor(fakePool([{ customer: "cus_1", status: "active" }]), "a@b.c")).apps, 250);
   assert.equal((await planFor(fakePool([{ customer: "cus_1", status: "trialing" }]), "a@b.c")).plan, "paid");
   for (const status of ["canceled", "past_due", "unpaid", "incomplete"]) assert.equal((await planFor(fakePool([{ customer: "cus_1", status }]), "a@b.c")).plan, "free", status);
   process.env.APPS_PER_PERSON = "2";
   assert.equal((await planFor(fakePool(), "a@b.c")).apps, 2);
+  delete process.env.APPS_PER_PERSON;
+});
+
+test("more apps for the asking: a step at a time on the free plan, up to its ceiling, and only when nearly full", async () => {
+  const { askForMore } = await import("../grove/src/billing.ts");
+  assert.match((await askForMore(fakePool(), "a@b.c", "a shop for my sister", 10)).note, /still room for 15 more/);
+  const more = await askForMore(fakePool(), "a@b.c", "a shop for my sister", 24);
+  assert.deepEqual([more.granted, more.apps], [true, 50]);
+  const most = await askForMore(fakePool([{ allowed: 100 }]), "a@b.c", "more", 99);
+  assert.equal(most.granted, false);
+  assert.match(most.note, /100 is the most the free plan goes to/);
+  assert.equal((await planFor(fakePool([{ allowed: 75 }]), "a@b.c")).apps, 75);
+  assert.equal((await planFor(fakePool([{ allowed: 9999 }]), "a@b.c")).apps, 100, "never past the ceiling");
+  assert.equal((await askForMore(fakePool([{ customer: "c", status: "active" }]), "a@b.c", "more", 249)).granted, false);
 });
 
 test("webhook event: a new subscription to our plan is recorded against the person's email", async () => {

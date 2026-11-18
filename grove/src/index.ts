@@ -5,7 +5,7 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import manifest from "../maple.json" with { type: "json" };
 import { createMapleApp, z, type Ctx, type Manifest } from "../../kit/kit.ts";
-import { BILLING_SCHEMA, billingOn, checkout, onEvent, planFor, portal, priceText, verified } from "./billing.ts";
+import { BILLING_SCHEMA, billingOn, checkout, onEvent, planFor, portal, priceText, verified, FREE, FREE_MAX, PAID, askForMore } from "./billing.ts";
 import { BuildError, bundle, check, upload, zip, type Files } from "./build.ts";
 import { Client } from "pg";
 import { capCompute, connectionUri, createBranch, createProject, deleteBranch, deleteProject, registerDomain, setUpSignIn } from "./neon.ts";
@@ -70,13 +70,13 @@ let paid: PaidPlan | undefined, paidAt = 0;
 function paidPlan() {
   if (billingOn() && Date.now() - paidAt > 3_600_000) {
     paidAt = Date.now();
-    priceText().then((price) => (paid = { price: price.replace(".00", ""), apps: Number(process.env.PAID_APPS_PER_PERSON ?? 25) })).catch(() => (paidAt = 0));
+    priceText().then((price) => (paid = { price: price.replace(".00", ""), apps: PAID() })).catch(() => (paidAt = 0));
   }
   return paid;
 }
 paidPlan();
 
-const { app, pool, init, email, site } = createMapleApp({ manifest: { ...(manifest as Manifest), auth: { ...manifest.auth, open: manifest.auth.open && !process.env.GROVE_INVITE_ONLY } }, slug: "grove", schema, guide, tools, routes, home: ({ mcpUrl }) => sitePage(mcpUrl, Number(process.env.APPS_PER_PERSON ?? 5), paidPlan(), process.env.GROVE_REPO_URL) });
+const { app, pool, init, email, site } = createMapleApp({ manifest: { ...(manifest as Manifest), auth: { ...manifest.auth, open: manifest.auth.open && !process.env.GROVE_INVITE_ONLY } }, slug: "grove", schema, guide, tools, routes, home: ({ mcpUrl }) => sitePage(mcpUrl, FREE(), paidPlan(), process.env.GROVE_REPO_URL, FREE_MAX()) });
 
 async function appFor(ctx: Ctx, slug: string) {
   await init();
@@ -414,7 +414,13 @@ function tools(server: McpServer, ctx: Ctx) {
       const { rows: [{ mine, total }] } = await pool.query("select count(*) filter (where $1 = any(makers))::int mine, count(*) filter (where host = 'neon')::int total from apps", [person.email]);
       const plan = await planFor(pool, person.email);
       if (!ctx.isMaker && mine >= plan.apps)
-        throw new Error(plan.plan === "free" && billingOn() ? `That's all ${plan.apps} apps on the free plan. The paid plan allows more: the upgrade tool gives a payment link.` : `That's all ${plan.apps} apps on your plan. Ask the Grove maker for more.`);
+        throw new Error(
+          plan.plan === "free" && plan.apps < FREE_MAX()
+            ? `That's all ${plan.apps} apps for now. More are free, up to ${FREE_MAX()}: ask the person what the next ones are for, then call more_apps.`
+            : plan.plan === "free" && billingOn()
+              ? `That's all ${plan.apps} apps on the free plan. The paid plan allows ${PAID()}: the upgrade tool gives a payment link.`
+              : `That's all ${plan.apps} apps on your plan. Ask the Grove maker for more.`,
+        );
       const host = runner.runnerOn() && plan.plan === "free" ? "runner" : "neon";
       if (host === "neon" && total >= Number(process.env.GROVE_MAX_APPS ?? 80)) throw new Error("Grove is full for now. Ask the Grove maker.");
       const taken = await pool.query("insert into apps (slug, title, description, makers, users, secret_hash) values ($1, $2, $3, $4, $5, $6) on conflict do nothing", [name, title, description, [person.email], users.map((u) => u.toLowerCase()), hash(appSecret(name))]);
@@ -487,7 +493,7 @@ function tools(server: McpServer, ctx: Ctx) {
     async () => {
       await init();
       const [p, { rows: [{ n }] }] = await Promise.all([planFor(pool, person.email), pool.query("select count(*)::int n from apps where $1 = any(makers)", [person.email])]);
-      return json({ plan: p.plan, appsAllowed: p.apps, appsMade: n, ...(billingOn() ? p.plan === "free" && { paidPlan: { apps: Number(process.env.PAID_APPS_PER_PERSON ?? 25), price: await priceText() } } : { note: "There is no paid plan yet." }) });
+      return json({ plan: p.plan, appsAllowed: p.apps, appsMade: n, ...(billingOn() ? p.plan === "free" && { paidPlan: { apps: PAID(), price: await priceText() } } : { note: "There is no paid plan yet." }) });
     },
   );
 
@@ -696,6 +702,21 @@ function tools(server: McpServer, ctx: Ctx) {
       await putUp(a, a.branch_id, archive, version, a.url);
       await pool.query("update apps set live = $2 where slug = $1", [slug, version]);
       return json({ rolledBack: rows[0].message, version, next: `${SWITCH}; app_status says when it is live.` });
+    },
+  );
+
+  server.registerTool(
+    "more_apps",
+    {
+      title: "Ask for more apps",
+      description:
+        "More apps on the free plan, without paying: 25 more each time, up to 100 in all. Use it when the person is at or near their limit. Ask them what the next apps are for and pass their answer as why. Past 100, the paid plan is the way.",
+      inputSchema: { why: z.string().min(5).max(1000).describe("What the next apps are for, in the person's words") },
+    },
+    async ({ why }) => {
+      await mustAgree();
+      const { rows: [{ n }] } = await pool.query("select count(*)::int n from apps where $1 = any(makers)", [person.email]);
+      return json({ ...(await askForMore(pool, person.email, why, n)), appsMade: n });
     },
   );
 

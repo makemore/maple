@@ -42,11 +42,13 @@ test("front page: ChatGPT gets the address to copy", () => {
 
 test("front page: shows the paid plan only when there is one", () => {
   const free = sitePage(MCP, 3);
-  assert.match(free, /Up to 3 small apps/);
+  assert.match(free, /3 websites and apps to start, and up to 100 just by asking/);
+  assert.match(free, /Generously free/);
   assert.doesNotMatch(free, /<h3>Plus<\/h3>/);
   const paid = sitePage(MCP, 3, { price: "£12 a month", apps: 25 });
   assert.match(paid, /<h3>Plus<\/h3>\s*<p class="big">£12 a month<\/p>/);
-  assert.match(paid, /Up to 25 small apps/);
+  assert.match(paid, /Up to 25 websites and apps/);
+  assert.match(sitePage(MCP, 25, undefined, undefined, 25), /25 websites and apps to start<\/li>/, "no promise of more when there is none");
   sound(paid);
 });
 
