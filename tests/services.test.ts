@@ -153,3 +153,30 @@ test("storage: requests are signed the S3 way, with the body's hash and the date
   const again = signed("PUT", new URL("https://s3.example/files/shop/abc"), new TextEncoder().encode("hello!"), { "content-type": "text/plain" }, new Date("2026-11-18T10:00:00Z"), env);
   assert.notEqual(again.authorization, h.authorization);
 });
+
+test("ai: real through the gateway when its model is enabled, with a capped answer and the app's name", async () => {
+  const { aiReady, aiForget, realAsk, checkAsk } = await import("../grove/src/services.ts");
+  process.env.NEON_AI_GATEWAY_BASE_URL = "https://gw.example";
+  process.env.NEON_AI_GATEWAY_TOKEN = "nt_test";
+  try {
+    aiForget();
+    const locked: typeof fetch = async () => new Response(JSON.stringify({ data: [{ id: "claude-haiku-5-5", enabled: false }] }));
+    assert.equal(await aiReady(locked), false, "no credits: stays pretend");
+    aiForget();
+    assert.equal(await aiReady(async () => new Response(JSON.stringify({ data: [{ id: "claude-haiku-5-5", enabled: true }] }))), true);
+    let sent: any;
+    const answer = await realAsk(checkAsk({ prompt: "Sort these", instructions: "One word" }), { paid: false, app: "Chris's Helper" }, async (_u, init) => {
+      sent = JSON.parse(String(init!.body));
+      return new Response(JSON.stringify({ choices: [{ message: { content: " Done " }, finish_reason: "stop" }], usage: { prompt_tokens: 12, completion_tokens: 3 } }));
+    });
+    assert.equal(answer.text, "Done");
+    assert.deepEqual(answer.usage, { input: 12, output: 3, model: "claude-haiku-5-5" });
+    assert.equal(sent.max_tokens, 800);
+    assert.match(sent.messages[0].content, /Chris's Helper[\s\S]*One word/);
+    assert.throws(() => checkAsk({ prompt: "" }), /prompt is required/);
+  } finally {
+    delete process.env.NEON_AI_GATEWAY_BASE_URL;
+    delete process.env.NEON_AI_GATEWAY_TOKEN;
+    aiForget();
+  }
+});

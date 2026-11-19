@@ -88,7 +88,7 @@ accounts and keys. `src/maple/services.ts` lists every call with its inputs and 
 | `services.files.put({ name, type, base64, public })`, `.link(id)`, `.remove(id)` | Yes | Keeping photos and documents, up to 4 MB each. Store the `id` in a table; a private file needs a fresh `link` each time it is shown. |
 | `services.payments.checkout({ amount, description, reference, returnTo })`, `.status(id)` | Pretend until connected | Taking a card payment on a Stripe page. Real once the maker runs Grove's `connect_payments` and Stripe is ready; pretend before that and always on trial copies. Keep the `id` in a table and check `status(id)` before treating anything as paid. |
 | `services.texts.send(...)` | Pretend | Text messages to phones. |
-| `services.ai.ask(...)` | Pretend | Sorting or summarising what people typed. |
+| `services.ai.ask({ prompt, instructions })` | Once Grove switches it on | Sorting, summarising or drafting from what people typed. Short answers and a daily number of asks per app: ask once per thing (when a form is sent, or in a daily job) and keep the answer in a table, never on every page view. Pretend (`mock: true`) until Grove has AI switched on. |
 | `services.pdf.make(...)` | Pretend | Invoices, certificates, anything to print. |
 
 A pretend service answers in the shape the real one will, with `mock: true` and a `note`. Build

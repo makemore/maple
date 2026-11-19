@@ -34,7 +34,7 @@ import { backLinks, paymentTools } from "./tools-payments.ts";
 import { watchErrors } from "./errors.ts";
 import { digest, stats } from "./stats.ts";
 import { AUTO_PAUSE_REPORTS, NEW_APPS, NEW_DAYS, SAFETY_SCHEMA, aiReview, blocking, dangerousUrls, disposable, distinctReports, nameProblem, outsideUrls, personEmailsPerDay, personEmailsToday, publicText, trustOf } from "./safety.ts";
-import { SERVICES, SERVICES_SCHEMA, ServiceError, appEmailsPerDay, checkEmail, footer, fromName, known, pretend, pretendCheckout, pretendPayPage, pretendStatus, removeFile, removeFilesOf, sendMail, wakeAt, wakeDue, whoGets, filesOn, keepFile, linkFile, linkGood, fileKey } from "./services.ts";
+import { SERVICES, SERVICES_SCHEMA, ServiceError, appEmailsPerDay, checkEmail, footer, fromName, known, pretend, pretendCheckout, pretendPayPage, pretendStatus, removeFile, removeFilesOf, sendMail, wakeAt, wakeDue, whoGets, filesOn, keepFile, linkFile, linkGood, fileKey, aiReady, checkAsk, realAsk, aiAsksPerDay, aiPersonAsksPerDay, aiGroveAsksPerDay } from "./services.ts";
 
 // An app's code lives here as whole versions: every saved change and every shipped state is one row.
 const schema = `
@@ -338,12 +338,13 @@ function tools(server: McpServer, ctx: Ctx) {
       title: "What Grove does for apps",
       annotations: { readOnlyHint: true },
       description:
-        "What Grove can do for an app so its maker sets nothing up: email, background work and files (real), and payments, text messages, AI and PDFs (pretend for now: they answer in the real shape but nothing really happens). Use it before building a feature that needs one, and to see what an app has asked for lately. With app, also lists that app's last 30 calls. Tell the person plainly which services are pretend.",
+        "What Grove can do for an app so its maker sets nothing up: email, background work and files (real), payments (real once the business connects Stripe), AI (real when Grove has it switched on; this tool says which), and text messages and PDFs (pretend for now: they answer in the real shape but nothing really happens). Use it before building a feature that needs one, and to see what an app has asked for lately. With app, also lists that app's last 30 calls. Tell the person plainly which services are pretend.",
       inputSchema: { app: z.string().optional().describe("One of the person's apps, to see what it has used") },
     },
     async ({ app: slug }) => {
       await init();
-      const list = SERVICES.map((s) => ({ service: s.name, status: s.real ? "real" : "pretend for now", what: s.what, inCode: s.use }));
+      const ai = await aiReady();
+      const list = SERVICES.map((s) => ({ service: s.name, status: s.real || (s.name === "ai" && ai) ? "real" : s.name === "payments" ? "real once the business connects Stripe (connect_payments), pretend before that" : "pretend for now", what: s.what, inCode: s.use }));
       if (!slug) return json({ services: list, howTo: "Each app's AGENTS.md and src/maple/services.ts say how to call them. Apps made before services existed need update_kit first." });
       const a = await appFor(ctx, slug);
       const { rows } = await pool.query("select service, action, mock as pretend, trial, result, at from service_calls where app = $1 order by id desc limit 30", [a.slug]);
@@ -1078,6 +1079,17 @@ function routes(app: import("hono").Hono<any>) {
           return c.json(result);
         }
         kept = { amount: body?.amount, currency: body?.currency, description: body?.description, reference: body?.reference, id: body?.id };
+      } else if (service === "ai" && (await aiReady())) {
+        const q = checkAsk(body);
+        const paid = (await planFor(pool, a.makers[0])).plan !== "free";
+        const asked = async (where: string, args: unknown[]) => (await pool.query(`select count(*)::int n from service_calls where service = 'ai' and not mock and at > now() - interval '1 day' and ${where}`, args)).rows[0].n as number;
+        if ((await asked("app = $1", [a.slug])) >= aiAsksPerDay(paid)) throw new ServiceError(`This app has asked the AI all it can today (${aiAsksPerDay(paid)} times). It can ask again tomorrow.`, 429);
+        if ((await asked("app in (select slug from apps where $1 = any(makers))", [a.makers[0]])) >= aiPersonAsksPerDay(paid)) throw new ServiceError(`The apps this person makes have asked the AI all they can today (${aiPersonAsksPerDay(paid)} times between them).`, 429);
+        if ((await asked("true", [])) >= aiGroveAsksPerDay()) throw new ServiceError("Grove's AI is busy today. Try again tomorrow.", 429);
+        result = await realAsk(q, { paid, app: a.title });
+        await pool.query("insert into service_calls (app, service, action, body, result, mock, trial) values ($1, $2, $3, $4, $5, false, $6)", [a.slug, service, action, JSON.stringify({ chars: q.prompt.length }), JSON.stringify({ usage: result.usage }), trial]);
+        const { usage: _u, ...answer } = result;
+        return c.json(answer);
       } else {
         result = pretend(service, action, body, id, site);
         const { base64: _b, html: _h, ...rest } = body ?? {};

@@ -1,5 +1,6 @@
 // Things an app gets with nothing for its maker to set up. Email, background work and files are real.
-// Payments, text messages, AI and PDFs are pretend versions until the real ones arrive.
+// Payments are real once the business connects Stripe, and AI once Grove has it switched on (check `mock`).
+// Text messages and PDFs are pretend versions until the real ones arrive.
 //
 // A pretend service takes the same input and gives back the same shape the real one will, with
 // `mock: true` and a note saying what did not really happen. Code written against it keeps working
@@ -49,7 +50,11 @@ export interface Services {
   texts: {
     send(msg: { to: string; text: string }): Promise<{ id: string; to: string } & Pretend>;
   };
-  /** Pretend for now. Asking an AI model from inside the app, e.g. to sort or summarise what people typed. */
+  /**
+   * Asking an AI model from inside the app, e.g. to sort or summarise what people typed. Real when Grove has AI
+   * switched on, pretend (mock: true) before that. Answers are short, and each app has a daily number of asks,
+   * so ask once per thing (when a form is sent, or in a daily job), keep the answer in a table, and never on every page view.
+   */
   ai: {
     ask(q: { prompt: string; instructions?: string }): Promise<{ text: string } & Pretend>;
   };
@@ -66,7 +71,7 @@ export const SERVICE_LIST = [
   { name: "tasks", real: true, what: "Do something later, or every morning, without anyone asking." },
   { name: "files", real: true, what: "Keep uploads and photos, each with its own web address." },
   { name: "texts", real: false, what: "Send a text to a phone." },
-  { name: "ai", real: false, what: "Sort, summarise or draft from what people typed." },
+  { name: "ai", real: false, what: "Sort, summarise or draft from what people typed. Real when Grove has AI switched on; short answers, a daily number of asks." },
   { name: "pdf", real: false, what: "Invoices, certificates and anything to print." },
 ] as const;
 

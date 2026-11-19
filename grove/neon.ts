@@ -4,6 +4,8 @@ import { buildAssets } from "../scripts/build-assets.ts";
 
 export default defineConfig({
   auth: true,
+  // AI for apps (services.ai): Grove calls models through Neon's gateway, so apps hold no AI keys.
+  aiGateway: true,
   // Where the files apps ask Grove to keep live. Private: Grove hands them out itself, at /files/.
   buckets: { files: { access: "private" } },
   // Once a minute Grove wakes the apps that have a background job due.

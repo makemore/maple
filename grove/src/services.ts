@@ -1,5 +1,6 @@
-// What Grove does for the apps it runs, so their makers have nothing to set up. Email is real, and
-// so is background work (the kit keeps the jobs; Grove only wakes the app when one is due).
+// What Grove does for the apps it runs, so their makers have nothing to set up. Email, background work
+// (the kit keeps the jobs; Grove only wakes the app when one is due) and files are real; payments are real
+// once the business connects Stripe, and AI once Grove's Neon account has AI credits.
 // The rest are pretend for now: they take the input the real service will, keep a record, and
 // answer in the real shape with `mock: true` and a note saying what did not happen.
 import type { Pool } from "pg";
@@ -30,7 +31,7 @@ export const SERVICES = [
   { name: "tasks", real: true, title: "Background work", what: "Do something later, or every day, without anyone asking. Kept in the app's own database, so it works wherever the app runs.", use: "services.tasks.later(name, payload, { inMinutes }) with the work in jobs" },
   { name: "files", real: true, title: "Files and photos", what: "Keep uploads and get a web address for each: public, or a private link that runs out.", use: "services.files.put({ name, type, base64, public })" },
   { name: "texts", real: false, title: "Text messages", what: "Send a text to a phone.", use: "services.texts.send({ to, text })" },
-  { name: "ai", real: false, title: "AI inside the app", what: "Sort, summarise or draft from what people typed.", use: "services.ai.ask({ prompt })" },
+  { name: "ai", real: false, title: "AI inside the app", what: "Sort, summarise or draft from what people typed. Short answers from a small, fast model, with a daily number of asks per app.", use: "services.ai.ask({ prompt })" },
   { name: "pdf", real: false, title: "PDFs", what: "Invoices, certificates and anything to print.", use: "services.pdf.make({ title, html })" },
 ] as const;
 
@@ -85,7 +86,7 @@ const NOTES: Record<string, string> = {
   payments: "Pretend: no money moved. Payments through Grove aren't switched on yet. The page at url lets the person pretend to pay so the rest can be tried.",
   files: "Pretend: the file was not kept and the address won't open. File storage isn't switched on yet.",
   texts: "Pretend: no text message was sent. Text messages aren't switched on yet.",
-  ai: "Pretend: no AI model was asked. This answer is a stand-in.",
+  ai: "Pretend: no AI model was asked. This answer is a stand-in, because AI isn't switched on for Grove yet.",
   pdf: "Pretend: no PDF was made and the address won't open. PDFs aren't switched on yet.",
 };
 
@@ -277,4 +278,65 @@ export async function removeFilesOf(pool: Pool, app: string) {
   const { rows } = await pool.query("delete from files where app = $1 returning id", [app]);
   if (storageOn()) await Promise.allSettled(rows.map((f) => deleteObject(fileKey(app, f.id))));
   return rows.length;
+}
+
+// ---- AI: real through Neon's AI gateway once Grove's Neon account has AI credits ----
+// One small, cheap model by default (AI_MODEL to change it). Every answer is capped in length and every app
+// has a daily number of asks, so a free app can't run up a bill. Without credits it stays pretend.
+
+/** Asks a day: per app, and across all of one person's apps. The paid plan gets ten times as many. */
+export const aiAsksPerDay = (paid: boolean) => Number(process.env.AI_ASKS_PER_DAY ?? 30) * (paid ? 10 : 1);
+export const aiPersonAsksPerDay = (paid: boolean) => aiAsksPerDay(paid) * 2;
+/** Grove's own ceiling for a whole day, across every app: the most AI can cost in a day, whatever happens. */
+export const aiGroveAsksPerDay = () => Number(process.env.AI_GROVE_ASKS_PER_DAY ?? 5000);
+const aiModel = () => process.env.AI_MODEL || "claude-haiku-5-5";
+const gateway = () => (process.env.AI_SERVICE === "off" ? undefined : process.env.NEON_AI_GATEWAY_BASE_URL && process.env.NEON_AI_GATEWAY_TOKEN ? { url: process.env.NEON_AI_GATEWAY_BASE_URL.replace(/\/$/, ""), token: process.env.NEON_AI_GATEWAY_TOKEN } : undefined);
+
+// Whether the gateway will answer: checked against its model list, and remembered for ten minutes.
+let aiState: { ok: boolean; at: number } | undefined;
+export async function aiReady(f: typeof fetch = fetch) {
+  const g = gateway();
+  if (!g) return false;
+  if (aiState && Date.now() - aiState.at < 600_000) return aiState.ok;
+  const ok = await f(`${g.url}/v1/models`, { headers: { authorization: `Bearer ${g.token}` }, signal: AbortSignal.timeout(5000) })
+    .then(async (r) => (r.ok ? ((await r.json()) as any).data?.some((m: any) => m.id === aiModel() && m.enabled !== false) === true : false))
+    .catch(() => false);
+  aiState = { ok, at: Date.now() };
+  return ok;
+}
+/** Forgets what aiReady found, so the next ask checks again. */
+export const aiForget = () => void (aiState = undefined);
+
+/** Checks what an app asks the AI. */
+export function checkAsk(body: any) {
+  const prompt = str(body?.prompt, "prompt", 20_000);
+  const instructions = body?.instructions === undefined ? undefined : str(body.instructions, "instructions", 4000);
+  return { prompt, instructions };
+}
+
+/** Asks the model once. The answer is kept short; anything the app needs longer should be asked in parts. */
+export async function realAsk(q: { prompt: string; instructions?: string }, o: { paid: boolean; app: string }, f: typeof fetch = fetch) {
+  const g = gateway();
+  if (!g) throw new ServiceError("AI isn't switched on for Grove.", 503);
+  const res = await f(`${g.url}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${g.token}` },
+    body: JSON.stringify({
+      model: aiModel(),
+      max_tokens: o.paid ? 2000 : 800,
+      messages: [
+        { role: "system", content: `You are a helper inside a small app called ${o.app}. You answer what the app asks, for the people who use it. Be brief and plain.${q.instructions ? `\n\nThe app's instructions:\n${q.instructions}` : ""}` },
+        { role: "user", content: q.prompt },
+      ],
+    }),
+    signal: AbortSignal.timeout(60_000),
+  }).catch(() => undefined);
+  if (!res || !res.ok) {
+    if (res && [401, 402, 403, 404].includes(res.status)) aiForget();
+    throw new ServiceError("The AI didn't answer. Try again in a minute.", 502);
+  }
+  const out: any = await res.json();
+  const text = String(out.choices?.[0]?.message?.content ?? "").trim();
+  if (!text) throw new ServiceError("The AI gave an empty answer. Try asking differently.", 502);
+  return { text, ...(out.choices?.[0]?.finish_reason === "length" && { note: "The answer was cut short at the length limit." }), usage: { input: out.usage?.prompt_tokens ?? 0, output: out.usage?.completion_tokens ?? 0, model: aiModel() } };
 }
