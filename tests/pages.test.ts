@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { consentPage, homePage, signInPage } from "../kit/pages.ts";
 import { TERMS_VERSION, agree, agreed, privacyPage, termsOn, termsPage } from "../grove/src/legal.ts";
-import { sitePage } from "../grove/src/site.ts";
+import { analytics, shell, sitePage } from "../grove/src/site.ts";
 
 const MCP = "https://grove.example/mcp";
 const sound = (html: string) => {
@@ -184,4 +184,19 @@ test("front page: search and share tags point at Grove's own address and picture
   const ld = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)![1]);
   const product = ld["@graph"].find((x: any) => x["@type"] === "SoftwareApplication");
   assert.deepEqual(product.offers.map((o: any) => [o.name, o.price, o.priceCurrency]), [["Free", "0", "USD"], ["Plus", "10", "USD"]]);
+});
+
+test("analytics: Cloudflare's cookieless counter is on Grove's own pages only when its token is set", () => {
+  const token = "77a604fe15a2405c87eb23c44134be2b";
+  assert.equal(analytics(undefined), "");
+  assert.equal(analytics("not-a-token'><script>"), "");
+  assert.match(analytics(token), /static\.cloudflareinsights\.com\/beacon\.min\.js/);
+  const before = process.env.CF_BEACON_TOKEN;
+  process.env.CF_BEACON_TOKEN = token;
+  try {
+    assert.match(sitePage(MCP, 5), /cloudflareinsights/);
+    assert.doesNotMatch(shell("An app: paused", "<h1>Paused</h1>"), /cloudflareinsights/, "never on pages shown at an app's address");
+  } finally {
+    if (before === undefined) delete process.env.CF_BEACON_TOKEN; else process.env.CF_BEACON_TOKEN = before;
+  }
 });

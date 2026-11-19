@@ -274,8 +274,15 @@ footer .wrap { display: flex; gap: 1rem 2rem; flex-wrap: wrap; justify-content: 
 footer p { margin: 0; }
 `;
 
+/**
+ * Cloudflare Web Analytics for Grove's own pages, when CF_BEACON_TOKEN is set: counts visits without
+ * cookies or anything that follows a person between sites. Never added to the apps Grove makes.
+ */
+export const analytics = (token = process.env.CF_BEACON_TOKEN) =>
+  token && /^[a-f0-9]{32}$/.test(token) ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token":"${token}"}'></script>` : "";
+
 /** A plain page in Grove's look, for the terms and privacy pages. */
-export const shell = (title: string, body: string) => `<!doctype html>
+export const shell = (title: string, body: string, headExtra = "") => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -283,6 +290,7 @@ export const shell = (title: string, body: string) => `<!doctype html>
 <title>${title.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`)}</title>
 <link rel="icon" type="image/svg+xml" href="/icon.svg">
 <style>${CSS}</style>
+${headExtra}
 </head>
 <body>
 <div class="wrap">
@@ -314,8 +322,8 @@ const table = (step: number, name: string, columns: string[], read = false) =>
   `<li data-step="${step}"${read ? ' class="read"' : ""}><strong>${name}</strong>${columns.map((c) => (c.includes("→") ? `<em>${c}</em>` : c)).join("<br>")}</li>`;
 
 const SEO_TITLE = "Grove: make websites and apps by asking your AI assistant";
-const SEO_DESCRIPTION = "Make a real website or app, for yourself or for the businesses you work with, by asking Claude, ChatGPT or any AI assistant. Its own database, pages and sign-in. Free to start, and the code is yours.";
-const SHARE_DESCRIPTION = "Websites and apps made by asking Claude, ChatGPT or any AI assistant, for you or for the businesses you make them for. Free to start, real code you own.";
+const SEO_DESCRIPTION = "Make a real website or app, for yourself or for the businesses you work with, by asking Claude, ChatGPT, Gemini or any AI assistant. Its own database, pages and sign-in. Free to start, and the code is yours.";
+const SHARE_DESCRIPTION = "Websites and apps made by asking Claude, ChatGPT, Gemini or any AI assistant, for you or for the businesses you make them for. Free to start, real code you own.";
 const SHARE_ALT = "Grove: websites and apps, made by asking. A chat where someone asks for a booking site for a barber's, and their assistant replies that it is live.";
 
 /** What search engines and link previews read: title, description, the share picture and a structured summary. */
@@ -374,6 +382,7 @@ export const sitePage = (connect: string, free: number, paid?: PaidPlan, repo?: 
 <meta name="viewport" content="width=device-width, initial-scale=1">
 ${seoHead(new URL(connect).origin, free, paid)}
 <style>${CSS}</style>
+${analytics()}
 </head>
 <body>
 <a class="skip" href="#main">Skip to the main part</a>
@@ -400,13 +409,13 @@ ${seoHead(new URL(connect).origin, free, paid)}
   <section class="wrap hero">
     <p class="kicker">Websites and tools, made by asking</p>
     <h1>Your website and the tools behind it, run from your AI assistant.</h1>
-    <p class="lede">Say what you need, or point Grove at the site you already pay for. You get a real website or app with its own database, pages and sign-in, made and changed by chatting with Claude, ChatGPT or any AI assistant. Free to start, no code, and yours to take anywhere.</p>
+    <p class="lede">Say what you need, or point Grove at the site you already pay for. You get a real website or app with its own database, pages and sign-in, made and changed by chatting with Claude, ChatGPT, Gemini, Grok or any AI assistant. Free to start, no code, and yours to take anywhere.</p>
     <div class="actions">
       <a class="btn" href="#connect">Start free</a>
       <a class="btn quiet" href="#move">Move a site here</a>
       <a class="btn quiet" href="#how">See how it works</a>
     </div>
-    <p class="already">Open to everyone. <a href="${claudeLink(connect)}">Add Grove to Claude</a> or <a href="#chatgpt">add Grove to ChatGPT</a>.</p>
+    <p class="already">Open to everyone. Add Grove to <a href="${claudeLink(connect)}">Claude</a>, <a href="#chatgpt">ChatGPT</a>, <a href="#gemini">Gemini</a>, <a href="#grok">Grok</a> or <a href="#other">any other assistant</a>.</p>
   </section>
 
   <div class="wrap">
@@ -420,7 +429,7 @@ ${seoHead(new URL(connect).origin, free, paid)}
       </div>
       <div class="panes">
         <div class="pane">
-          <div class="bar">Your AI assistant <small>Claude, ChatGPT or another, with Grove added</small></div>
+          <div class="bar">Your AI assistant <small>Claude, ChatGPT, Gemini, Grok or another, with Grove added</small></div>
           <div class="talk">
             ${says(0, "you", "I run a small coffee roastery. I need to keep track of wholesale customers, their orders and our stock, and know what to roast each week.")}
             ${says(1, "app", "I'll build that with Grove. Setting up the database and the tools now.")}
@@ -660,6 +669,41 @@ ${seoHead(new URL(connect).origin, free, paid)}
           <p><a class="btn" href="https://chatgpt.com/#settings/Connectors">Open ChatGPT's settings</a></p>
           <p class="note">ChatGPT has no one-press way to add an app yet, and needs a paid ChatGPT plan for this.</p>
         </div>
+        <div id="gemini">
+          <h3>Gemini</h3>
+          <ol>
+            <li>Copy Grove's address:
+              <div class="copy"><code>${connect}</code><button class="btn quiet small" type="button" data-copy="${connect}">Copy</button><span role="status" aria-live="polite"></span></div>
+            </li>
+            <li>At gemini.google.com, open <strong>Settings</strong>, then <strong>Connected apps</strong>, and choose <strong>Add a custom app</strong>.</li>
+            <li>Paste the address, press <strong>Next</strong>, and sign in with your email.</li>
+          </ol>
+          <p><a class="btn" href="https://gemini.google.com/">Open Gemini</a></p>
+          <p class="note">Google is opening this up in stages, starting with personal accounts in the US. Add it on the web; it then works in the phone app too.</p>
+        </div>
+        <div id="grok">
+          <h3>Grok</h3>
+          <ol>
+            <li>Copy Grove's address:
+              <div class="copy"><code>${connect}</code><button class="btn quiet small" type="button" data-copy="${connect}">Copy</button><span role="status" aria-live="polite"></span></div>
+            </li>
+            <li>At grok.com, open <strong>Connectors</strong> and add a <strong>custom connector</strong>.</li>
+            <li>Name it Grove, paste the address, and sign in with your email.</li>
+          </ol>
+          <p><a class="btn" href="https://grok.com/connectors">Open Grok's connectors</a></p>
+        </div>
+        <div id="other">
+          <h3>Any other assistant</h3>
+          <p>Grove works with any assistant or coding agent that can add a connector (an "MCP server") by its address: Meta Muse, Microsoft Copilot, Cursor, VS Code, Gemini CLI and more.</p>
+          <ol>
+            <li>Find where it adds a <strong>connector</strong>, <strong>custom app</strong> or <strong>MCP server</strong>.</li>
+            <li>Give it this address:
+              <div class="copy"><code>${connect}</code><button class="btn quiet small" type="button" data-copy="${connect}">Copy</button><span role="status" aria-live="polite"></span></div>
+            </li>
+            <li>When it asks, sign in with your email. A code arrives to confirm it is yours.</li>
+          </ol>
+          <p class="note">Working in a terminal? Ask Grove to "make me a CLI token" and use Grove's command line instead.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -701,7 +745,7 @@ ${seoHead(new URL(connect).origin, free, paid)}
         <p>A paid plan with higher limits will come later. We'll tell you well before anything changes.</p>
       </div>`}
     </div>
-    <p class="note" style="margin-top:1.5rem">You also need an AI assistant that can connect to outside apps, such as Claude or ChatGPT. That is separate from Grove.</p>
+    <p class="note" style="margin-top:1.5rem">You also need an AI assistant that can connect to outside apps, such as Claude, ChatGPT, Gemini or Grok. That is separate from Grove.</p>
   </section>
 
   <section class="band" id="faq">
@@ -712,7 +756,7 @@ ${seoHead(new URL(connect).origin, free, paid)}
         <details><summary>Do I need to know anything about code?</summary><p>No. You describe what you want and check that the result does it. The code is there if a developer ever needs it, and you never have to look at it.</p></details>
         <details><summary>Where do I actually use my app?</summary><p>In your assistant's chat, the same place you made it. There's nothing to install. It can also have web pages of its own at its own address: a front page, a form, a list. Those open in any browser.</p></details>
         <details><summary>Who can see my information?</summary><p>Only the people you name for that app, after they sign in with a code sent to their email. Each app's information is kept apart from every other app's. See the <a href="/privacy">privacy page</a> for the detail.</p></details>
-        <details><summary>Does it use up my Claude or ChatGPT allowance?</summary><p>Yes. Making and changing apps is work your assistant does, so it counts against your plan with them. Using an app is light; building one is heavier. Grove keeps count, tells you how big a job is, and stops to ask before a day's work gets large.</p></details>
+        <details><summary>Does it use up my assistant's allowance?</summary><p>Yes. Making and changing apps is work your assistant does, so it counts against your plan with them. Using an app is light; building one is heavier. Grove keeps count, tells you how big a job is, and stops to ask before a day's work gets large.</p></details>
         <details><summary>What if Grove gets something wrong?</summary><p>It will sometimes. That's why every change goes to a trial copy first and can be undone after. Check that an app does what you meant before you rely on it.</p></details>
         <details><summary>Can I make things for other people or businesses?</summary><p>Yes, and we hope you do. You stay the maker: you name who can use it, they ask you for changes, and you can hand them the code and the information at any time. What you charge them is up to you.</p></details>
         <details><summary>Can I move my existing website or tools here?</summary><p>Yes, if they're yours. Tell your assistant where the site lives now, or hand it an export (WordPress's export file, a CSV, a spreadsheet). Grove copies your pages and pictures to a trial copy, and your assistant rebuilds the forms and features you use. Before the copy goes live you show the site is yours, with a short code on the site or in its DNS. Your old site keeps running until you switch, so you can stop paying for hosting and plugins once you're happy.</p></details>

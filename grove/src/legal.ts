@@ -2,7 +2,7 @@
 // Both are drafts until GROVE_LEGAL_NAME and GROVE_CONTACT_EMAIL are set: until then the pages say so
 // and nobody is asked to agree. Change TERMS_VERSION when the meaning changes: everyone is asked again.
 import type { Pool } from "pg";
-import { shell } from "./site.ts";
+import { analytics, shell } from "./site.ts";
 
 export const TERMS_VERSION = "2026-11-18";
 
@@ -77,7 +77,7 @@ export const termsPage = () =>
   <p>If we change these terms in a way that matters, Grove will ask you to agree again before you make or change apps.</p>
   <h2>Law</h2>
   <p>These terms are under the law of England and Wales. If you use Grove as a consumer, you keep the protections of the law where you live.</p>
-  <p><a href="/privacy">Privacy</a> · <a href="/">Back to Grove</a></p>`);
+  <p><a href="/privacy">Privacy</a> · <a href="/">Back to Grove</a></p>`, analytics());
 
 export const privacyPage = () =>
   shell("Grove: privacy", `${head("Privacy")}
@@ -99,7 +99,7 @@ export const privacyPage = () =>
     <li><strong>Google Cloud</strong> runs apps on the free plan and the sign-in for them, in the United States.</li>
     <li><strong>Stripe</strong> takes payments.</li>
     <li><strong>Postmark</strong> sends emails.</li>
-    <li><strong>Cloudflare</strong> directs visitors to Grove and its apps.</li>
+    <li><strong>Cloudflare</strong> directs visitors to Grove and its apps, and counts visits to Grove's own pages (which pages, which site sent you, country and device type), without cookies.</li>
   </ul>
   <p>These companies handle information only to provide their service to us. Where information leaves the United Kingdom or Europe, it is covered by the safeguards the law requires.</p>
   <h2>How long we keep it</h2>
@@ -109,5 +109,5 @@ export const privacyPage = () =>
   <h2>Information about other people in your apps</h2>
   <p>For what you put in your apps about other people, you decide what is kept and why, and Grove only holds it for you. People who want that information corrected or removed should ask you, the app's maker.</p>
   <h2>Cookies</h2>
-  <p>Grove uses only the cookies needed to keep you signed in. There is no advertising and no tracking.</p>
-  <p><a href="/terms">Terms</a> · <a href="/">Back to Grove</a></p>`);
+  <p>Grove uses only the cookies needed to keep you signed in. Visits to Grove's own pages are counted without cookies and without following you to other sites. There is no advertising, and nothing is added to the apps you make.</p>
+  <p><a href="/terms">Terms</a> · <a href="/">Back to Grove</a></p>`, analytics());

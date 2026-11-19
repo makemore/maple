@@ -76,6 +76,8 @@ export default defineConfig({
         APPS_EDGE: { value: process.env.APPS_EDGE, required: false },
         // Where the code is public. With it, the front page says "open source" and links there.
         GROVE_REPO_URL: { value: process.env.GROVE_REPO_URL, required: false },
+        // Cloudflare Web Analytics token for Grove's own pages (no cookies). Unset, no analytics script is added.
+        CF_BEACON_TOKEN: { value: process.env.CF_BEACON_TOKEN, required: false },
         // Who runs this Grove, for its terms and privacy pages. Until both are set the pages are drafts and nobody is asked to agree.
         GROVE_LEGAL_NAME: { value: process.env.GROVE_LEGAL_NAME, required: false },
         GROVE_CONTACT_EMAIL: { value: process.env.GROVE_CONTACT_EMAIL, required: false },
