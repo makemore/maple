@@ -26,6 +26,8 @@ export function watchErrors() {
   const original = console.error.bind(console);
   console.error = (...args) => {
     original(...args);
+    // Node's own warnings are printed this way too, and aren't failures.
+    if (typeof args[0] === "string" && /^\(node:\d+\) \[?[A-Z]*\d*\]? ?\w*Warning/.test(args[0])) return;
     void report(args.find((a) => a instanceof Error), args.filter((a) => typeof a === "string").join(" "));
   };
   process.on("unhandledRejection", (e) => console.error("unhandled rejection:", e));

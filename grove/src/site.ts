@@ -88,20 +88,37 @@ const pick = (i, focus) => {
   });
   if (focus) tabs[i].focus();
 };
-tabs.forEach((tab, i) => tab.addEventListener("click", () => pick(i)));
+// Google lets only some accounts add outside apps to Gemini, so its steps come after a warning the person can cancel.
+const warn = document.getElementById("gemini-warn");
+let warned = false, after = null;
+const choose = (i, focus) => {
+  if (panels[i].id !== "gemini" || warned || !warn.showModal) return pick(i, focus), true;
+  after = () => pick(i, focus);
+  warn.returnValue = "";
+  warn.showModal();
+  return false;
+};
+warn.addEventListener("close", () => {
+  if (warn.returnValue === "go") {
+    warned = true;
+    if (after) after();
+  } else if (location.hash === "#gemini") history.replaceState(null, "", location.pathname + location.search);
+  after = null;
+});
+tabs.forEach((tab, i) => tab.addEventListener("click", () => choose(i)));
 tablist.addEventListener("keydown", (e) => {
   const i = tabs.indexOf(document.activeElement);
   const to = e.key === "ArrowRight" ? (i + 1) % tabs.length : e.key === "ArrowLeft" ? (i + tabs.length - 1) % tabs.length : e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : -1;
   if (i < 0 || to < 0) return;
   e.preventDefault();
-  pick(to, true);
+  choose(to, true);
 });
 // A link to one assistant's steps (#chatgpt) opens its tab.
 const fromHash = () => {
   const i = panels.findIndex((panel) => "#" + panel.id === location.hash);
   if (i < 0) return;
-  pick(i);
   document.getElementById("connect").scrollIntoView();
+  choose(i);
 };
 if (tabs.length) {
   tablist.hidden = false;
@@ -336,6 +353,10 @@ section { padding-block: clamp(3.5rem, 9vw, 6.5rem); }
 .tabs button { font: inherit; font-weight: 700; min-height: 2.9rem; padding: .45rem 1.2rem; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
 .tabs button:hover { border-color: var(--brand); }
 .tabs button[aria-selected=true] { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+dialog { width: min(34rem, calc(100% - 2rem)); border: 1px solid var(--line); border-radius: 1.35rem; padding: clamp(1.35rem, 4vw, 2rem); background: var(--card); color: var(--ink); box-shadow: 0 2rem 4rem -1rem rgb(0 0 0 / .4); }
+dialog::backdrop { background: rgb(12 19 15 / .6); }
+dialog h2 { font-size: 1.5rem; }
+dialog form { display: flex; gap: .75rem; flex-wrap: wrap; justify-content: flex-end; max-width: none; margin-top: 1.5rem; }
 .connect { display: grid; gap: 1.1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); margin-top: 2rem; }
 .connect > div { background: var(--card); border: 1px solid var(--line); border-radius: 1.35rem; padding: 1.5rem; box-shadow: var(--shadow); }
 .connect.tabbed { display: block; max-width: 42rem; margin: 1.1rem auto 0; }
@@ -432,8 +453,8 @@ const table = (step: number, name: string, columns: string[], read = false) =>
   `<li data-step="${step}"${read ? ' class="read"' : ""}><strong>${name}</strong>${columns.map((c) => (c.includes("→") ? `<em>${c}</em>` : c)).join("<br>")}</li>`;
 
 const SEO_TITLE = "Grove: make websites and apps by asking your AI assistant";
-const SEO_DESCRIPTION = "Make a real website or app, for yourself or for the businesses you work with, by asking Claude, ChatGPT, Gemini or any AI assistant. Its own database, pages and sign-in. Free to start, and the code is yours.";
-const SHARE_DESCRIPTION = "Websites and apps made by asking Claude, ChatGPT, Gemini or any AI assistant, for you or for the businesses you make them for. Free to start, real code you own.";
+const SEO_DESCRIPTION = "Grove makes websites and small apps when you ask your AI assistant for them: Claude, ChatGPT, Grok and others. Each one gets its own database, pages and sign-in. It is free to start, and you can download the code.";
+const SHARE_DESCRIPTION = "Websites and apps made by asking Claude, ChatGPT or another AI assistant, for you or for the businesses you make them for. It is free to start, and you can download the code.";
 const SHARE_ALT = "Grove: websites and apps, made by asking. A chat where someone asks for a booking site for a barber's, and their assistant replies that it is live.";
 
 /** What search engines and link previews read: title, description, the share picture and a structured summary. */
@@ -520,7 +541,7 @@ ${analytics()}
   <section class="wrap hero">
     <p class="badge"><span class="dot" aria-hidden="true"></span>Open to everyone. Free to start.</p>
     <h1>Your website and the tools behind it, run from your <span class="hl">AI assistant.</span></h1>
-    <p class="lede">Say what you need, or point Grove at the site you already pay for. You get a real website or app with its own database, pages and sign-in, made and changed just by chatting. No code, and yours to take anywhere.</p>
+    <p class="lede">Tell your assistant what you need, or point Grove at the site you already pay for. Grove builds a website or app with its own database, pages and sign-in, and you change it later the same way. You never touch the code, and you can download all of it and host it somewhere else.</p>
     <div class="actions">
       <a class="btn big" href="#connect">Start free</a>
       <a class="btn big quiet" href="#how">See how it works</a>
@@ -596,7 +617,7 @@ ${analytics()}
       <figcaption>An example of how it goes. The business and its numbers are made up.</figcaption>
     </figure>
     <ul class="inside">
-      <li><svg aria-hidden="true" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg><strong>A real database</strong><span>Proper Postgres, with as many linked tables as the job needs. Not a spreadsheet behind a chat.</span></li>
+      <li><svg aria-hidden="true" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg><strong>A Postgres database</strong><span>Each app gets its own, with as many linked tables as the job needs.</span></li>
       <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16v11H10l-5 4v-4H4z"/><path d="M9 10.500h.01M12 10.500h.01M15 10.500h.01"/></svg><strong>Its own tools</strong><span>Each app is an MCP server made for that one job, which any assistant that speaks MCP can use.</span></li>
       <li><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3.500" y="4" width="17" height="16" rx="2.500"/><path d="M3.500 9h17M8 13h8M8 16.500h5"/></svg><strong>Web pages</strong><span>A front page, a form, a list that fills itself from the database. Public, or only for the people you name.</span></li>
       <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.500 6l-3 12"/></svg><strong>An API when you need one</strong><span>Web addresses other software can call, so your other tools can feed it.</span></li>
@@ -607,7 +628,7 @@ ${analytics()}
     <ul class="facts">
       <li><strong>About 20 seconds</strong><span>from your sentence to something live</span></li>
       <li><strong>Its own private data</strong><span>kept apart from every other app's</span></li>
-      <li><strong>Real code you can keep</strong><span>download it whenever you like</span></li>
+      <li><strong>Code you can download</strong><span>the whole app, whenever you like</span></li>
       <li><strong>${free} apps free</strong><span>${freeMax > free ? `up to ${freeMax} by asking, ` : ""}no card needed</span></li>
     </ul>
   </div>
@@ -618,7 +639,7 @@ ${analytics()}
     <p class="intro">You add Grove to your AI assistant once. After that, making a website or an app is a conversation.</p>
     <ol class="cards steps">
       <li><h3>Say what you need</h3><p>Describe the job the way you'd tell a person: what it should show or keep track of, and who it's for. A sentence or two is enough.</p></li>
-      <li><h3>Grove makes it</h3><p>You get a real website or app with its own database and its own address. Anyone can visit the pages you make public, and each person you name can sign in and use it from their own assistant.</p></li>
+      <li><h3>Grove makes it</h3><p>You get a website or app with its own database and address. Anyone can visit the pages you make public, and each person you name can sign in and use it from their own assistant.</p></li>
       <li><h3>Use it, and grow it</h3><p>Ask it questions and tell it things. When you want more, say so. Every change is tried on a copy first, and can be undone after.</p></li>
     </ol>
   </section>
@@ -662,7 +683,7 @@ ${analytics()}
             <li>Paste the address, press <strong>Next</strong>, and sign in with your email.</li>
           </ol>
           <p><a class="btn" href="https://gemini.google.com/">Open Gemini</a></p>
-          <p class="note">Google is opening this up in stages, starting with personal accounts in the US. Add it on the web; it then works in the phone app too.</p>
+          <p class="note">Google only offers <strong>Add a custom app</strong> to some accounts: for now, people in the US, 18 or over, on a personal Google account, and reportedly only on its top paid plan (Google AI Ultra). If you can't see the option, your account doesn't have it yet. We haven't been able to test Gemini ourselves.</p>
         </div>
         <div id="grok" data-tab="Grok">
           <h3>Grok</h3>
@@ -695,7 +716,7 @@ ${analytics()}
     <div class="wrap">
       <p class="kicker">What people make</p>
       <h2>The jobs nobody builds software for</h2>
-      <p class="intro">Too small for a software project, too awkward for a spreadsheet. A simple website, a helper you talk to, or both at once on the same database.</p>
+      <p class="intro">These jobs are too small for a software project and too awkward for a spreadsheet. Grove can make a simple website, a helper you talk to, or both on the same database.</p>
       <ul class="cards">
         <li><h3>A shop helper</h3><p class="say">"What's running low, and what did we sell most of this week?"</p><p>Stock, reorders and sales notes.</p></li>
         <li><h3>A club website</h3><p class="say">"Who hasn't paid for spring? Write them a reminder."</p><p>Fixtures and a sign-up form for everyone; members and fees for you.</p></li>
@@ -731,7 +752,7 @@ ${analytics()}
     <div class="wrap">
     <p class="kicker">Move in</p>
     <h2>Bring over what you already pay for, and stop paying for it</h2>
-    <p class="intro">Paying every month for website hosting, a site builder, a pile of plugins or a tool charged per person? Tell your assistant where it lives now. Grove copies your content into an app you own, rebuilds the parts you actually use, and your old one keeps running until you're happy to switch. The first ${free} apps are free.</p>
+    <p class="intro">If you pay every month for website hosting, a site builder, a pile of plugins or a tool charged per person, tell your assistant where it lives now. Grove copies your content into an app you own, rebuilds the parts you actually use, and your old one keeps running until you're happy to switch. The first ${free} apps are free.</p>
     <ul class="cards four">
       <li><h3>A WordPress site</h3><p class="say">"Move my WordPress site over, posts and all."</p><p>Pages, posts, categories and images come across from WordPress's own export. Contact forms and galleries become part of the app, so there's no hosting plan, security plugin or plugin licence to renew.</p></li>
       <li><h3>A site-builder site</h3><p class="say">"Copy my Squarespace site and keep the same pages."</p><p>Wix, Squarespace and the like. Your pages, words and pictures, copied from your live site into pages you change by asking. No monthly builder plan.</p></li>
@@ -805,7 +826,7 @@ ${analytics()}
   <section class="deep" id="yours">
     <div class="wrap">
       <p class="kicker">It's yours</p>
-      <h2>Real code, in an open format. No lock-in.</h2>
+      <h2>You can take the code and leave</h2>
       <p class="intro">Most tools that make apps for you keep them. Grove makes ordinary code with an ordinary database, and hands you both whenever you ask.</p>
       <ul class="cards two">
         <li><h3>Take the code</h3><p>Ask Grove for a download and you get the whole app as files any developer can read and run.</p></li>
@@ -817,7 +838,7 @@ ${analytics()}
   </section>
 
   <section class="wrap" id="safe">
-    <p class="kicker">Careful by design</p>
+    <p class="kicker">When things go wrong</p>
     <h2>Built so a mistake is easy to undo</h2>
     <p class="intro">Apps are written with the help of AI, and AI gets things wrong. Some people will try to misuse it too. Grove is made with both in mind.</p>
     <ul class="cards two">
@@ -833,15 +854,15 @@ ${analytics()}
   <section class="band center" id="price">
     <div class="wrap">
     <p class="kicker">Price</p>
-    <h2>Free to start. Simple to grow.</h2>
-    <p class="intro">Free isn't a trial: make real websites and apps, keep them running and share them, without a card. Plus is for when you want more of them, or want them to be your own brand.</p>
+    <h2>What it costs</h2>
+    <p class="intro">The free plan isn't a trial. You can make websites and apps, keep them running and share them without giving a card. Plus is for when you want more of them, or want the Grove line taken off their pages.</p>
     <div class="prices">
       <div class="price">
         <h3>Free</h3>
         <p class="big"><span data-zero>${paid?.price.match(/^[^\d\s]+/)?.[0] ?? "£"}0</span></p>
         <ul>
           <li>${free} websites and apps${freeMax > free ? `, and up to ${freeMax} just by asking` : ""}</li>
-          <li>A real database, web pages, sign-in, email, background work and file storage in every one</li>
+          <li>A database, web pages, sign-in, email, background work and file storage in every one</li>
           <li>Share each one with the people you choose, or make its pages public</li>
           <li>Trial copies, undo and change requests included</li>
           <li>Take the code and the information away whenever you like</li>
@@ -906,6 +927,15 @@ ${analytics()}
       </form>
     </div>
   </section>
+  <dialog id="gemini-warn" aria-labelledby="gemini-warn-title">
+    <h2 id="gemini-warn-title">Gemini needs a particular Google account</h2>
+    <p>Google only lets some accounts add outside apps like Grove to Gemini. For now you need to be in the US, 18 or over, and on a personal Google account (not a work or school one). It is also reported to need Google's top paid plan, Google AI Ultra.</p>
+    <p>Without those, the <strong>Add a custom app</strong> option won't be there. We haven't been able to test Gemini ourselves yet.</p>
+    <form method="dialog">
+      <button class="btn quiet" value="cancel">Cancel</button>
+      <button class="btn" value="go">Show me the steps</button>
+    </form>
+  </dialog>
 </main>
 
 <footer>

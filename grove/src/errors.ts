@@ -18,7 +18,7 @@ const frames = (stack = "") =>
   });
 
 /** The event Sentry expects for one error. */
-export function eventFor(error: unknown, o: { extra?: Extra; release?: string; server?: string; level?: "error" | "warning" } = {}) {
+export function eventFor(error: unknown, o: { extra?: Extra; release?: string; server?: string; level?: "error" | "warning"; tags?: Record<string, string>; environment?: string; fingerprint?: string[] } = {}) {
   const e = error instanceof Error ? error : new Error(typeof error === "string" ? error : JSON.stringify(error));
   return {
     event_id: crypto.randomUUID().replace(/-/g, ""),
@@ -27,24 +27,30 @@ export function eventFor(error: unknown, o: { extra?: Extra; release?: string; s
     level: o.level ?? "error",
     server_name: o.server ?? "grove",
     release: o.release,
-    environment: "production",
+    environment: o.environment ?? "production",
+    ...(o.tags && { tags: o.tags }),
+    ...(o.fingerprint && { fingerprint: o.fingerprint }),
     exception: { values: [{ type: e.name, value: e.message.slice(0, 2000), stacktrace: { frames: frames(e.stack) } }] },
     extra: o.extra,
   };
 }
 
-let sent: number[] = [];
-/** Sends one error. Never throws, and stops at 30 a minute so a loop of failures can't flood Sentry. */
-export async function report(error: unknown, extra?: Extra, o: { dsn?: string; server?: string; fetcher?: typeof fetch } = {}) {
+const buckets = new Map<string, number[]>();
+/**
+ * Sends one error. Never throws, and stops at 30 a minute (per bucket, so apps' errors can't crowd out
+ * Grove's own) so a loop of failures can't flood Sentry.
+ */
+export async function report(error: unknown, extra?: Extra, o: { dsn?: string; server?: string; fetcher?: typeof fetch; tags?: Record<string, string>; environment?: string; fingerprint?: string[]; bucket?: string; perMinute?: number } = {}) {
   const dsn = o.dsn ?? (typeof process !== "undefined" ? process.env.SENTRY_DSN : undefined);
   if (!dsn) return false;
-  const now = Date.now();
-  sent = sent.filter((t) => now - t < 60_000);
-  if (sent.length >= 30) return false;
+  const now = Date.now(), key = o.bucket ?? "grove";
+  const sent = (buckets.get(key) ?? []).filter((t) => now - t < 60_000);
+  buckets.set(key, sent);
+  if (sent.length >= (o.perMinute ?? 30)) return false;
   sent.push(now);
   try {
     const { key, url } = parseDsn(dsn);
-    const ev = eventFor(error, { extra, server: o.server, release: typeof process !== "undefined" ? process.env.MAPLE_COMMIT ?? process.env.GROVE_RELEASE : undefined });
+    const ev = eventFor(error, { extra, server: o.server, tags: o.tags, environment: o.environment, fingerprint: o.fingerprint, release: typeof process !== "undefined" ? process.env.MAPLE_COMMIT ?? process.env.GROVE_RELEASE : undefined });
     const body = `${JSON.stringify({ event_id: ev.event_id, sent_at: new Date().toISOString() })}\n${JSON.stringify({ type: "event" })}\n${JSON.stringify(ev)}\n`;
     const res = await (o.fetcher ?? fetch)(url, { method: "POST", headers: { "content-type": "application/x-sentry-envelope", "x-sentry-auth": `Sentry sentry_version=7, sentry_key=${key}, sentry_client=grove/1.0` }, body, signal: AbortSignal.timeout(5000) });
     return res.ok;
@@ -59,6 +65,8 @@ export function watchErrors(server = "grove", keepAlive?: (p: Promise<unknown>) 
   const original = console.error.bind(console);
   const patched = (...args: unknown[]) => {
     original(...args);
+    // Node's own warnings (deprecations, the database driver's SSL note) are printed this way too, and aren't failures.
+    if (typeof args[0] === "string" && /^\(node:\d+\) \[?[A-Z]*\d*\]? ?\w*Warning/.test(args[0])) return;
     const error = args.find((a) => a instanceof Error) ?? new Error(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ").slice(0, 2000));
     const p = report(error, { message: args.filter((a) => typeof a === "string").join(" ").slice(0, 2000) }, { server });
     keepAlive?.(p);

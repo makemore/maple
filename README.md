@@ -16,9 +16,9 @@ Around those five: functions (the app's code), scheduled jobs, secrets and a cus
 
 Most people don't want another app to learn. They want to ask a question in plain English and get
 an answer from their own data, and to say "can it also do this?" and have that happen. A shop
-asking what to reorder, a clinic checking tomorrow's bookings, a club chasing unpaid fees, a team
-tracking its jobs: same shape every time. MAPLE apps are built for that: the assistant is the
-interface, the database holds what matters, and the loop is how the app grows.
+asking what to reorder, a clinic checking tomorrow's bookings, a club chasing unpaid fees and a team
+tracking its jobs all want the same thing. In a MAPLE app the assistant is the interface, the data
+lives in the database, and the loop is how people ask for more.
 
 ## What's here
 

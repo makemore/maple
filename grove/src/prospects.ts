@@ -123,7 +123,7 @@ ${links.preview}
 
 Nothing has changed on your current site, and only someone with that link can see the preview. If you'd like to keep it, it can run on your own domain for free with a small "Made with Grove" line at the bottom, or £10 a month without it. Changes are made by asking an AI assistant such as Claude, rather than logging in to a site builder.
 
-If it's not for you, there's no need to reply: the preview deletes itself on ${p.expires_at.toISOString().slice(0, 10)}. To delete it now and not hear from me again, use this link:
+If it's not for you, there's no need to reply. The preview deletes itself on ${p.expires_at.toISOString().slice(0, 10)}. To delete it now and not hear from me again, use this link:
 ${links.no}
 
 ${from.name}

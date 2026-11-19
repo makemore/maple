@@ -21,7 +21,7 @@ export default defineConfig({
       EDGE_SECRET: bindings.secret(),
       // Requests one visitor may make to one app in a minute, before getting "too many requests".
       // Where the front door's own failures go (a Sentry DSN). Empty: nowhere.
-      SENTRY_DSN: bindings.text(process.env.SENTRY_DSN ?? ""),
+      SENTRY_DSN: bindings.text(process.env.SENTRY_DSN_EDGE ?? process.env.SENTRY_DSN ?? ""),
       LIMIT_PER_MINUTE: bindings.text(process.env.EDGE_LIMIT_PER_MINUTE ?? "600"),
     },
   },

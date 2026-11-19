@@ -99,6 +99,7 @@ export const privacyPage = () =>
     <li><strong>Google Cloud</strong> runs apps on the free plan and the sign-in for them, in the United States.</li>
     <li><strong>Stripe</strong> takes payments.</li>
     <li><strong>Postmark</strong> sends emails.</li>
+    <li><strong>Sentry</strong> keeps error reports from Grove and from apps, in the European Union: what went wrong and where in the code, which can include part of what someone typed. Only an app's makers can read its errors through Grove.</li>
     <li><strong>Cloudflare</strong> directs visitors to Grove and its apps, and counts visits to Grove's own pages (which pages, which site sent you, country and device type), without cookies.</li>
   </ul>
   <p>These companies handle information only to provide their service to us. Where information leaves the United Kingdom or Europe, it is covered by the safeguards the law requires.</p>

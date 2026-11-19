@@ -36,7 +36,7 @@ export const SERVICES = [
 ] as const;
 
 const ACTIONS: Record<string, string[]> = {
-  email: ["send"], payments: ["checkout", "status"], tasks: ["wake"], files: ["put", "remove", "link"], texts: ["send"], ai: ["ask"], pdf: ["make"],
+  email: ["send"], payments: ["checkout", "status"], tasks: ["wake"], errors: ["report"], files: ["put", "remove", "link"], texts: ["send"], ai: ["ask"], pdf: ["make"],
 };
 export const known = (service: string, action: string) => Boolean(ACTIONS[service]?.includes(action));
 

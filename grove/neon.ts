@@ -55,6 +55,10 @@ export default defineConfig({
         STRIPE_CONNECT: { value: process.env.STRIPE_CONNECT, required: false, onUndefined: "skip" },
         // SENTRY_DSN: where Grove's errors go (a Sentry project's DSN).
         SENTRY_DSN: { value: process.env.SENTRY_DSN, required: false, onUndefined: "skip" },
+        // Apps' errors: the DSN of one Sentry project for all apps (Grove tags each error with its app), and a
+        // read-only Sentry token (Issue & Event: Read, Project: Read) so makers can read theirs back with app_errors.
+        SENTRY_DSN_APPS: { value: process.env.SENTRY_DSN_APPS, required: false, onUndefined: "skip" },
+        SENTRY_API_TOKEN: { value: process.env.SENTRY_API_TOKEN, required: false, onUndefined: "skip" },
         // ANTHROPIC_API_KEY: turns on the AI review of public pages before they ship.
         ANTHROPIC_API_KEY: { value: process.env.ANTHROPIC_API_KEY, required: false, onUndefined: "skip" },
         // Stripe and Postmark keep the values already deployed when a deploy doesn't give them, so deploying from a

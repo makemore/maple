@@ -45,6 +45,19 @@ export function tools(server: McpServer, { pool, person, json }: Ctx) {
 }
 ```
 
+## The database
+
+`pool.query(sql, params)` is the one thing to use. Where Grove runs the app on its shared server,
+the pool only has `query`: there is no `pool.connect()`, no client to hold and no `BEGIN`/`COMMIT`
+across calls. To change several tables together, do it in one statement, with `with ... insert ...
+returning` steps (a statement runs all or nothing). Always pass values as `$1`, `$2` parameters.
+
+## When something fails
+
+A tool, page or background job that throws is reported to Grove, which keeps the error, the code
+lines it came from and whether it was live or on a preview. The maker's assistant reads them with
+Grove's `app_errors` tool, so check there before guessing at a cause.
+
 ## Web pages
 
 The app can be a website too. In `src/app.ts`:

@@ -8,6 +8,7 @@ import { attachDatabasePool } from "@neon/functions";
 import { createMcpAuth } from "@neon/oauth/mcp";
 import { honoMcpBearerAuth, honoProtectedResourceMetadata, type McpAuthVariables } from "@neon/oauth/mcp/hono";
 import { Hono, type Context } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { Pool } from "pg";
 import { z } from "zod";
@@ -188,7 +189,24 @@ export function createMapleApp(def: AppDef) {
       wake: grove && appSecret && !trial ? (at) => fetch(`${grove}/services/tasks/wake`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${appSecret}` }, body: JSON.stringify({ at: new Date(at).toISOString() }), signal: AbortSignal.timeout(5000) }) : undefined,
     }),
   });
-  const runJobs = async () => (await init(), tick(pool, def.jobs ?? {}, { pool, services }));
+  // Errors in the app's own code (its tools, pages and background jobs) go to Grove, which keeps them for
+  // the maker to read back (Grove's app_errors). Ten a minute at most, and never in the way of the answer.
+  const recent: number[] = [];
+  const reportFailure = async (e: unknown, where: string) => {
+    if (!grove || !appSecret) return;
+    const now = Date.now();
+    while (recent.length && now - recent[0] > 60_000) recent.shift();
+    if (recent.length >= 10) return;
+    recent.push(now);
+    const err = e instanceof Error ? e : new Error(typeof e === "string" ? e : JSON.stringify(e));
+    await fetch(`${grove}/services/errors/report`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${appSecret}` },
+      body: JSON.stringify({ where, type: err.name, message: err.message.slice(0, 2000), stack: (err.stack ?? "").slice(0, 8000), trial }),
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => undefined);
+  };
+  const runJobs = async () => (await init(), tick(pool, def.jobs ?? {}, { pool, services }, undefined, (name, e) => reportFailure(e, `job ${name}`)));
 
   async function ask(sender: string, kind: (typeof KINDS)[number], message: string, prompt?: string) {
     await init();
@@ -331,6 +349,17 @@ export function createMapleApp(def: AppDef) {
         },
       );
 
+    // The app's own tools: a tool that throws still answers the assistant with the error, and Grove hears about it.
+    const register = server.registerTool.bind(server) as (...a: any[]) => any;
+    (server as any).registerTool = (name: string, config: unknown, handler: (...a: any[]) => any) =>
+      register(name, config, async (...a: any[]) => {
+        try {
+          return await handler(...a);
+        } catch (e) {
+          await reportFailure(e, `tool ${name}`);
+          throw e;
+        }
+      });
     def.tools?.(server, { pool, person, isMaker, json, services });
     return server;
   }
@@ -464,6 +493,13 @@ export function createMapleApp(def: AppDef) {
     await next();
   });
   def.routes?.(app, pool, services);
+  // A page or endpoint that throws: the visitor gets a plain error, and Grove hears about it.
+  app.onError(async (err, c) => {
+    if (err instanceof HTTPException) return err.getResponse();
+    console.error(`${c.req.method} ${c.req.path} failed:`, err);
+    await reportFailure(err, `${c.req.method} ${c.req.path}`);
+    return c.text("Something went wrong.", 500);
+  });
 
   app.on(["GET", "DELETE"], "/mcp", (c) => c.json({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed." }, id: null }, 405, { Allow: "POST" }));
   app.post("/mcp", async (c) => {

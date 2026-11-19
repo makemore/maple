@@ -104,7 +104,7 @@ export function createTasks(o: { pool: Pool; init: () => Promise<unknown>; names
  * Safe to call from several places at once: each job is claimed before it runs, and claiming
  * it also books its next try, so a job that crashes the app is tried again rather than lost.
  */
-export async function tick<C>(pool: Pool, jobs: Jobs<C>, ctx: C, now = () => new Date()) {
+export async function tick<C>(pool: Pool, jobs: Jobs<C>, ctx: C, now = () => new Date(), failed_?: (name: string, e: unknown) => unknown) {
   const started = now().getTime();
   let ran = 0, failed = 0;
   while (ran + failed < TICK_MAX && now().getTime() - started < TICK_BUDGET_MS) {
@@ -129,6 +129,7 @@ export async function tick<C>(pool: Pool, jobs: Jobs<C>, ctx: C, now = () => new
       failed++;
       const why = String((e as Error)?.message ?? e).slice(0, 1000);
       console.error(`job ${t.name} #${t.id} failed (try ${t.attempts}):`, why);
+      await Promise.resolve(failed_?.(t.name, e)).catch(() => undefined);
       // A repeating job that keeps failing skips to its next usual time instead of stopping for good.
       const next = t.attempts >= MAX_TRIES ? nextRun(t, now()) : null;
       if (next) await pool.query("update maple_tasks set last_error = $2, run_at = $3, attempts = 0 where id = $1", [t.id, why, next]);

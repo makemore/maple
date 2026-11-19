@@ -6,15 +6,15 @@ its own address. Grove is itself a MAPLE app. The hosted one is at [makewithgrov
 
 ## What it does
 
-- **Makes apps.** `create_app` starts an app from the template in [`../template`](../template), in its own Neon project.
-- **Keeps the code.** Every saved change and every shipped state is a whole version in Grove's database. No git account is needed.
-- **Builds inside itself.** Code is type-checked and bundled in the function ([`src/build.ts`](src/build.ts)) and refused if it has problems.
-- **Previews, ships, undoes.** Each change gets a preview on its own copy of the database. Shipping combines changes file by file; rolling back makes a new version.
-- **Hands apps over.** `export_app` gives the code as a zip and the address of the database.
-- **Passes apps on.** `give_app` offers an app to another person, such as the client it was made for; `accept_app` makes it theirs.
-- **Does the awkward parts for apps.** Email is sent through Grove ([`src/services.ts`](src/services.ts)), and a one-minute timer wakes any app with background work due. Payments, files, text messages, AI and PDFs answer in a pretend mode for now.
-- **Has a front door on Cloudflare.** [`../edge`](../edge) is a small Worker that app addresses can go through, so traffic limits apply before a request reaches an app. It asks Grove where each app lives.
-- **Looks after the service.** Plans and payment through Stripe, terms people agree to, limits, reports, pausing, and a count of how much of a person's assistant allowance the work uses.
+- `create_app` starts an app from the template in [`../template`](../template), in its own Neon project.
+- Every saved change and every shipped state is kept as a whole version in Grove's database, so no git account is needed.
+- Code is type-checked and bundled in the function ([`src/build.ts`](src/build.ts)) and refused if it has problems.
+- Each change gets a preview on its own copy of the database. Shipping combines changes file by file; rolling back makes a new version.
+- `export_app` gives the code as a zip and the address of the database.
+- `give_app` offers an app to another person, such as the client it was made for; `accept_app` makes it theirs.
+- Email for apps is sent through Grove ([`src/services.ts`](src/services.ts)), and a one-minute timer wakes any app with background work due. Payments, files, text messages, AI and PDFs answer in a pretend mode for now.
+- [`../edge`](../edge) is a small Cloudflare Worker that app addresses can go through, so traffic limits apply before a request reaches an app. It asks Grove where each app lives.
+- Grove also handles plans and payment through Stripe, terms people agree to, limits, reports, pausing, and a count of how much of a person's assistant allowance the work uses.
 
 ## Running your own
 
