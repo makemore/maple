@@ -75,7 +75,18 @@ export async function setUpSignIn(project: string, branch: string, url: string, 
       console.error("sign-in sender not set:", e.message),
     );
   await settled(() => neon("POST", `${base}/domains`, { domain: url, auth_provider: "better_auth" })).catch(already);
-  await settled(() => neon("PATCH", `${base}/plugins/oauth-provider`, { enabled: true, login_page: `${url}/auth/sign-in`, consent_page: `${url}/auth/consent`, resources: [{ identifier: `${url}/mcp` }] }));
+  // Any assistant can connect: Claude identifies itself with a metadata document (CIMD); ChatGPT, Gemini, Grok
+  // and others mostly register themselves (dynamic registration). Either way the person signs in and approves.
+  await settled(() =>
+    neon("PATCH", `${base}/plugins/oauth-provider`, {
+      enabled: true,
+      login_page: `${url}/auth/sign-in`,
+      consent_page: `${url}/auth/consent`,
+      // The address goes in one place only: Neon refuses it in both resources and mcp.
+      resources: [],
+      mcp: { resource: `${url}/mcp`, dynamic_registration: true, client_id_metadata_documents: true },
+    }),
+  );
 }
 
 /** Serves the app's function at a name on the apps domain (its DNS already points every name at Neon). */

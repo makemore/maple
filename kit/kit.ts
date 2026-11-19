@@ -1,5 +1,5 @@
 // The MAPLE kit: everything every MAPLE app needs, so an app only adds its own tables and tools.
-// MCP first, Auth (email codes, OAuth for Claude), Postgres, the Loop (ask the maker), Email.
+// MCP first, Auth (email codes, OAuth for any AI assistant), Postgres, the Loop (ask the maker), Email.
 // Apps made by Grove get a copy of this folder at src/maple/. Change it here, not in an app.
 import { timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

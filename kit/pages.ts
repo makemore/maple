@@ -1,5 +1,5 @@
-// Web pages every MAPLE app serves: home (sign-in, then how to connect Claude and the requests),
-// plus the sign-in and consent pages Claude's OAuth flow sends people to.
+// Web pages every MAPLE app serves: home (sign-in, then how to connect an AI assistant and the requests),
+// plus the sign-in and consent pages an assistant's OAuth flow sends people to.
 // Scripts live in template strings: no backticks or ${} inside them.
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
@@ -134,7 +134,7 @@ export const signInPage = (title: string, authUrl: string) =>
     `
 const signedIn = async () => {
   const { error } = await auth.oauth2.continue({ selected: true });
-  if (error) say("This sign-in link expired. Go back to Claude and connect again.");
+  if (error) say("This sign-in link expired. Go back to your assistant and connect again.");
 };
 ${SIGN_IN_SCRIPT}
 if ((await auth.getSession()).data?.user) await signedIn();`,
@@ -164,7 +164,7 @@ if (hosts.length) {
 for (const [id, accept] of [["allow", true], ["deny", false]]) {
   $(id).addEventListener("click", async () => {
     const { error } = await auth.oauth2.consent({ accept });
-    if (error) say(error.message ?? "Something went wrong. Go back to Claude and connect again.");
+    if (error) say(error.message ?? "Something went wrong. Go back to your assistant and connect again.");
   });
 }`,
   );
@@ -176,18 +176,27 @@ export const homePage = (title: string, authUrl: string, mcpUrl: string) =>
     `<main class="narrow" id="card" hidden>${head(title)}${SIGN_IN_FORMS}</main>
 <main id="app" hidden>${head(title)}
 <p class="muted">Signed in as <span id="who"></span>. <a href="#" id="sign-out">Sign out</a></p>
-<h2>Use ${esc(title)} from Claude</h2>
+<h2>Use ${esc(title)} from your AI assistant</h2>
+<p>${esc(title)} works with Claude, ChatGPT, Gemini, Grok and any other assistant that can add a connector. You add it once:</p>
 <ol>
-  <li>In Claude, open <strong>Settings</strong>, then <strong>Connectors</strong>.</li>
-  <li>Choose <strong>Add custom connector</strong>, name it ${esc(title)}, and paste this address:</li>
+  <li>Copy this address:</li>
 </ol>
 <div class="row"><code id="url">${esc(mcpUrl)}</code><button id="copy" type="button">Copy</button></div>
-<ol start="3">
+<ol start="2">
+  <li>Add it as a connector, named ${esc(title)}:
+    <ul>
+      <li><strong>Claude</strong>: Settings, Connectors, Add custom connector.</li>
+      <li><strong>ChatGPT</strong>: Settings, Apps &amp; Connectors, turn on Developer mode, then Create.</li>
+      <li><strong>Gemini</strong>: Settings, Connected apps, Add a custom app.</li>
+      <li><strong>Grok</strong>: Connectors, add a custom connector.</li>
+      <li><strong>Anything else</strong>: wherever it adds a connector, custom app or MCP server.</li>
+    </ul>
+  </li>
   <li>Choose <strong>Connect</strong> and sign in with this email.</li>
   <li>Start a new chat and ask ${esc(title)} anything.</li>
 </ol>
 <h2>Requests</h2>
-<p id="none" class="muted" hidden>Nothing asked yet. In Claude, say what you'd like ${esc(title)} to do.</p>
+<p id="none" class="muted" hidden>Nothing asked yet. In your assistant, say what you'd like ${esc(title)} to do.</p>
 <table id="requests" hidden><thead><tr><th>#</th><th>Asked</th><th>Status</th><th>Reply</th></tr></thead><tbody></tbody></table>
 <p id="msg" role="status" aria-live="polite"></p></main>`,
     `

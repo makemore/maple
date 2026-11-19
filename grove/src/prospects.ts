@@ -101,7 +101,7 @@ export const claimPage = (host: string, token: string, site: string, connect: st
     `<h1>Keep ${esc(host)} on Grove</h1>
 <p>Grove runs websites and small business tools that you change by asking your AI assistant, instead of logging in to a site builder. Your site can run on your own domain for free, with a small "Made with Grove" line at the bottom, or without it on the paid plan.</p>
 <ol>
-<li>Add Grove to Claude: Settings, Connectors, Add custom connector, and paste <code>${esc(connect)}</code>. (<a href="${esc(site)}/#get">Step by step</a>.)</li>
+<li>Add Grove to your AI assistant (Claude, ChatGPT, Gemini, Grok or another) as a connector, with the address <code>${esc(connect)}</code>. (<a href="${esc(site)}/#connect">Step by step</a>.)</li>
 <li>In a chat, say: <em>"Claim my Grove preview ${esc(token)}"</em>.</li>
 <li>Grove asks you to show the site is yours (a line in your DNS or on your site), then copies it properly, pictures and all.</li>
 </ol>

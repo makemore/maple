@@ -66,12 +66,16 @@ const sign = (what: string) => {
 const appSecret = (slug: string) => sign(`app:${slug}`);
 
 const guide = `Grove makes small apps that people use through their AI assistant: each app has its own database,
-email-code sign-in, its own address, a Claude connector and a way for its users to ask its maker for changes.
+email-code sign-in, its own address, a connector for any AI assistant (Claude, ChatGPT, Gemini, Grok and others)
+and a way for its users to ask its maker for changes.
 Use create_app when someone wants a new app, then build the features they described with the code tools:
 read AGENTS.md and src/app.ts of the app first, make the change with write_files (it checks the code and
 puts up a preview; if it reports problems, fix them and write again), show the preview, and ship_change only
-when the person says so. After create_app, tell the person how to add the app to Claude
-(Settings, Connectors, Add custom connector, paste the connection address).
+when the person says so. After create_app, tell the person how to add the app to the assistant they use: in
+Claude, Settings, Connectors, Add custom connector; in ChatGPT, Settings, Apps & Connectors, Developer mode, Create;
+in Gemini, Settings, Connected apps, Add a custom app; in Grok, Connectors, custom connector; anywhere else, wherever
+it adds a connector or MCP server. Each time they paste the connection address and sign in with their email.
+Describe the steps for the assistant you are, in its own words, if you know them better.
 If a tool says the person must agree to the terms first, give them both links, ask plainly whether they agree,
 and call accept_terms only after they say yes themselves. Never agree for them.
 Building uses up the person's assistant allowance, which matters on a subscription. Before making an app or a
@@ -367,7 +371,7 @@ function tools(server: McpServer, ctx: Ctx) {
     {
       title: "Create an app",
       description:
-        "Creates a new app and puts it live: its own private Postgres tables (on the paid plan, a whole database of its own), email-code sign-in, its own address and a Claude connector, starting from the MAPLE template. The person asking becomes its maker. On the paid plan, each app beyond the ones its price includes adds a small charge (the plan tool says how much): say so before making one. users are the emails of the people it is for, who can sign in (more can be added later from inside the app). Takes about 20 seconds. Then build the described features with write_files. Confirm the name and who it is for first.",
+        "Creates a new app and puts it live: its own private Postgres tables (on the paid plan, a whole database of its own), email-code sign-in, its own address and a connector for any AI assistant, starting from the MAPLE template. The person asking becomes its maker. On the paid plan, each app beyond the ones its price includes adds a small charge (the plan tool says how much): say so before making one. users are the emails of the people it is for, who can sign in (more can be added later from inside the app). Takes about 20 seconds. Then build the described features with write_files. Confirm the name and who it is for first.",
       inputSchema: {
         name: z.string().regex(SLUG).describe("Short lowercase name; it becomes the app's address, e.g. river-rowing-fees"),
         title: z.string().min(2).max(60).describe("Name people see, e.g. 'Club Helper'"),
@@ -447,7 +451,7 @@ function tools(server: McpServer, ctx: Ctx) {
     {
       title: "Is it live?",
       annotations: { readOnlyHint: true },
-      description: "Whether an app's latest shipped version is answering yet (live) or still switching over (starting), its address, the connection address to add in Claude, its open changes and what shipped lately.",
+      description: "Whether an app's latest shipped version is answering yet (live) or still switching over (starting), its address, the connection address to add in any AI assistant, its open changes and what shipped lately.",
       inputSchema: { app: z.string() },
     },
     async ({ app: slug }) => {
