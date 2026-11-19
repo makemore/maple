@@ -6,3 +6,4 @@ grove/src/template-files.ts
 .env.*
 .cloudflare
 dist
+ops/drafts/

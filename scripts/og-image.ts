@@ -19,7 +19,7 @@ function shot(html: string, w: number, h: number) {
 
 const og = shot(readFileSync(resolve("grove/assets/og.html"), "utf8"), 1200, 630);
 // The home-screen icon is square with no rounded corners: phones round them themselves.
-const touch = shot(`<html><body style="margin:0;width:180px;height:180px;background:#1f5135">${ICON_SVG.replace('rx="14"', 'rx="0"').replace("<svg ", '<svg width="180" height="180" ')}</body></html>`, 180, 180);
+const touch = shot(`<html><body style="margin:0;width:180px;height:180px;background:#fffdf7">${ICON_SVG.replace(/<rect x="1"[^>]*>/, "").replace('rx="14"', 'rx="0"').replace("<svg ", '<svg width="180" height="180" ')}</body></html>`, 180, 180);
 
 writeFileSync(
   resolve("grove/src/images.ts"),

@@ -22,11 +22,16 @@ const SCRIPT = `
     (area === "Europe" && euro.includes(city)) || (area === "Atlantic" && ["Canary", "Madeira", "Azores"].includes(city)) ? "eur" :
     area === "America" && canada.includes(city) ? "cad" :
     area === "Australia" ? "aud" : "usd";
+  let local = false;
   els.forEach((el) => {
     let prices;
     try { prices = JSON.parse(el.dataset.prices); } catch { return; }
-    if (prices[want]) el.textContent = prices[want];
+    if (!prices[want]) return;
+    el.textContent = prices[want];
+    local = true;
   });
+  const sign = { gbp: "£", eur: "€", usd: "$", cad: "$", aud: "$" }[want];
+  if (local) for (const el of document.querySelectorAll("[data-zero]")) el.textContent = sign + "0";
 })();
 const form = document.getElementById("invite-form");
 const msg = document.getElementById("invite-msg");
@@ -59,6 +64,66 @@ for (const b of document.querySelectorAll("[data-copy]")) {
       said.textContent = "Couldn't copy. Select the address and copy it by hand.";
     }
   });
+}
+// The steps for each assistant become tabs, so a person sees only their own. Without this script all of them show.
+const panels = [...document.querySelectorAll(".connect > [data-tab]")];
+const tablist = document.getElementById("assistant-tabs");
+const tabs = panels.map((panel) => {
+  const tab = document.createElement("button");
+  tab.type = "button";
+  tab.id = "tab-" + panel.id;
+  tab.textContent = panel.dataset.tab;
+  tab.setAttribute("role", "tab");
+  tab.setAttribute("aria-controls", panel.id);
+  panel.setAttribute("role", "tabpanel");
+  panel.setAttribute("aria-labelledby", tab.id);
+  tablist.append(tab);
+  return tab;
+});
+const pick = (i, focus) => {
+  tabs.forEach((tab, j) => {
+    tab.setAttribute("aria-selected", String(i === j));
+    tab.tabIndex = i === j ? 0 : -1;
+    panels[j].hidden = i !== j;
+  });
+  if (focus) tabs[i].focus();
+};
+tabs.forEach((tab, i) => tab.addEventListener("click", () => pick(i)));
+tablist.addEventListener("keydown", (e) => {
+  const i = tabs.indexOf(document.activeElement);
+  const to = e.key === "ArrowRight" ? (i + 1) % tabs.length : e.key === "ArrowLeft" ? (i + tabs.length - 1) % tabs.length : e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : -1;
+  if (i < 0 || to < 0) return;
+  e.preventDefault();
+  pick(to, true);
+});
+// A link to one assistant's steps (#chatgpt) opens its tab.
+const fromHash = () => {
+  const i = panels.findIndex((panel) => "#" + panel.id === location.hash);
+  if (i < 0) return;
+  pick(i);
+  document.getElementById("connect").scrollIntoView();
+};
+if (tabs.length) {
+  tablist.hidden = false;
+  tablist.nextElementSibling.classList.add("tabbed");
+  pick(0);
+  fromHash();
+  addEventListener("hashchange", fromHash);
+}
+// Sections ease in as they are scrolled to. Only what starts below the screen, and never for people who ask for less motion.
+if ("IntersectionObserver" in window && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  const seen = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      entry.target.classList.add("in");
+      seen.unobserve(entry.target);
+    }
+  });
+  for (const el of document.querySelectorAll("section h2, section .intro, .cards > li, .fit > div, .price, .facts, .inside > li, .faq")) {
+    if (el.getBoundingClientRect().top < innerHeight) continue;
+    el.classList.add("reveal");
+    seen.observe(el);
+  }
 }
 // The example at the top plays through one story a step at a time. Without this script the finished state simply shows.
 const demo = document.getElementById("demo");
@@ -105,55 +170,74 @@ if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
 
 const CSS = `
 :root {
+  color-scheme: light dark;
   --ink: #1c2a1e; --soft: #4d5e51; --line: #d8dfd9; --bg: #f6f4ec; --card: #fffdf7;
   --brand: #1f5135; --brand-ink: #fff; --leaf: #f2a541; --tint: #e7efe6; --deep: #173d28; --deep-ink: #eef5ef; --deep-soft: #b9cfc0;
+  --focus: #1f5135; --glow: rgb(242 165 65 / .3); --glow2: rgb(31 81 53 / .17); --mark: rgb(242 165 65 / .55);
+  --shadow: 0 1px 2px rgb(28 42 30 / .05), 0 1rem 2rem -1.25rem rgb(28 42 30 / .25);
 }
 @media (prefers-color-scheme: dark) {
-  :root { --ink: #e8eee9; --soft: #a9b8ac; --line: #34433a; --bg: #121a15; --card: #1a241e; --brand: #7fcb9c; --brand-ink: #0f1a13; --tint: #1f2c24; --deep: #0c130f; --deep-ink: #e8eee9; --deep-soft: #a9b8ac; }
+  :root { --ink: #e8eee9; --soft: #a9b8ac; --line: #34433a; --bg: #121a15; --card: #1a241e; --brand: #7fcb9c; --brand-ink: #0f1a13; --tint: #1f2c24; --deep: #0c130f; --deep-ink: #e8eee9; --deep-soft: #a9b8ac;
+    --focus: #f2a541; --glow: rgb(242 165 65 / .1); --glow2: rgb(127 203 156 / .1); --mark: rgb(242 165 65 / .35); --shadow: none; }
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { scroll-behavior: smooth; scroll-padding-top: 1rem; }
+html { scroll-behavior: smooth; scroll-padding-top: 5.5rem; -webkit-text-size-adjust: 100%; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
-body { margin: 0; font: 1.125rem/1.65 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
-h1, h2, h3 { font-family: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, sans-serif; line-height: 1.15; text-wrap: balance; }
-h1 { font-size: clamp(2.25rem, 6.5vw, 3.75rem); margin: 0 0 .45em; letter-spacing: -.02em; }
-h2 { font-size: clamp(1.6rem, 4.2vw, 2.4rem); margin: 0 0 .5em; letter-spacing: -.01em; }
-h3 { font-size: 1.15rem; margin: 0 0 .3em; }
-p { margin: 0 0 1em; }
+body { margin: 0; font: 1.125rem/1.65 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink);
+  background: radial-gradient(58rem 30rem at 12% -6rem, var(--glow), transparent 70%), radial-gradient(52rem 30rem at 92% -4rem, var(--glow2), transparent 70%), var(--bg); background-repeat: no-repeat; }
+h1, h2, h3 { font-family: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, sans-serif; line-height: 1.12; text-wrap: balance; }
+h1 { font-size: clamp(2.4rem, 7vw, 4.4rem); margin: 0 0 .45em; letter-spacing: -.03em; font-weight: 800; }
+h2 { font-size: clamp(1.75rem, 4.4vw, 2.75rem); margin: 0 0 .5em; letter-spacing: -.02em; font-weight: 800; }
+h3 { font-size: 1.2rem; margin: 0 0 .35em; }
+p { margin: 0 0 1em; text-wrap: pretty; }
 a { color: var(--brand); text-underline-offset: .2em; }
-:focus-visible { outline: 3px solid var(--leaf); outline-offset: 3px; border-radius: 4px; }
-.wrap { max-width: 66rem; margin-inline: auto; padding-inline: 1rem; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; border-radius: 6px; }
+.wrap { max-width: 72rem; margin-inline: auto; padding-inline: 1.15rem; }
 .skip { position: absolute; left: -999px; }
-.skip:focus { left: 1rem; top: 1rem; background: var(--card); padding: .5rem 1rem; z-index: 2; }
-header.top { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; padding-block: 1rem; }
-.logo { display: flex; align-items: center; gap: .6rem; font-weight: 700; font-size: 1.3rem; color: var(--ink); text-decoration: none; margin-right: auto; }
+.skip:focus { left: 1rem; top: 1rem; background: var(--card); padding: .6rem 1rem; z-index: 20; border-radius: .5rem; }
+.masthead { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 82%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+header.top { display: flex; align-items: center; gap: .5rem 1rem; flex-wrap: wrap; padding-block: .7rem; }
+.logo { display: flex; align-items: center; gap: .6rem; font-weight: 800; font-size: 1.35rem; color: var(--ink); text-decoration: none; margin-right: auto; font-family: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, sans-serif; }
 .logo svg { width: 2.25rem; height: 2.25rem; }
-nav ul { display: flex; gap: .25rem 1.25rem; flex-wrap: wrap; list-style: none; margin: 0; padding: 0; font-size: 1rem; }
-nav a { display: inline-block; padding: .4rem 0; text-decoration: none; color: var(--soft); font-weight: 600; }
+nav ul { display: flex; gap: .25rem 1.35rem; flex-wrap: wrap; align-items: center; list-style: none; margin: 0; padding: 0; font-size: 1rem; }
+nav a:not(.btn) { display: inline-flex; align-items: center; min-height: 2.75rem; text-decoration: none; color: var(--soft); font-weight: 600; }
 .gh { display: inline-flex !important; align-items: center; gap: .5rem; }
 nav a.gh { color: var(--ink); }
-nav a:hover { color: var(--brand); text-decoration: underline; }
-section { padding-block: clamp(3rem, 8vw, 5.5rem); }
-.kicker { font-size: .95rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--brand); margin: 0 0 .6rem; }
-.intro { font-size: 1.2rem; color: var(--soft); max-width: 42rem; margin-bottom: 0; }
-.hero { padding-top: clamp(1.5rem, 5vw, 3.5rem); padding-bottom: clamp(1.5rem, 4vw, 2.5rem); text-align: center; }
+nav a:not(.btn):hover { color: var(--brand); text-decoration: underline; }
+@media (max-width: 60rem) { nav .opt { display: none; } }
+section { padding-block: clamp(3.5rem, 9vw, 6.5rem); }
+.kicker { font-size: .9rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--brand); margin: 0 0 .7rem; }
+.kicker::before { content: ""; display: inline-block; width: 1.5rem; height: .2rem; border-radius: 1rem; background: var(--leaf); margin-right: .6rem; vertical-align: middle; position: relative; top: -.1em; }
+.intro { font-size: 1.22rem; color: var(--soft); max-width: 44rem; margin-bottom: 0; }
+.center { text-align: center; }
+.center .intro, .center .faq, .center .prices { margin-inline: auto; }
+.center .faq, .center .prices, .center .connect, .center .tabs + .connect { text-align: left; }
+.hero { padding-top: clamp(2.5rem, 7vw, 5rem); padding-bottom: clamp(2rem, 5vw, 3rem); text-align: center; }
+.hero h1 { max-width: 17ch; margin-inline: auto; }
+.hl { background: linear-gradient(transparent 62%, var(--mark) 62%, var(--mark) 93%, transparent 93%); -webkit-box-decoration-break: clone; box-decoration-break: clone; padding-inline: .08em; border-radius: .15em; }
+.badge { display: inline-flex; align-items: center; gap: .55rem; margin: 0 0 1.4rem; padding: .35rem .95rem; border-radius: 999px; background: var(--card); border: 1px solid var(--line); font-size: .95rem; font-weight: 600; box-shadow: var(--shadow); }
+.dot { width: .6rem; height: .6rem; border-radius: 50%; background: #2f9e5f; box-shadow: 0 0 0 .25rem rgb(47 158 95 / .2); }
 .hero .lede { margin-inline: auto; }
 .hero .actions { justify-content: center; }
-.lede { font-size: 1.3rem; color: var(--soft); max-width: 42rem; }
-.actions { display: flex; gap: .75rem; flex-wrap: wrap; margin-top: 1.5rem; align-items: center; }
-.btn { display: inline-block; font: inherit; font-weight: 600; padding: .8rem 1.35rem; border-radius: 999px; border: 2px solid var(--brand); background: var(--brand); color: var(--brand-ink); text-decoration: none; cursor: pointer; }
-.btn:hover { filter: brightness(1.08); }
+.lede { font-size: clamp(1.15rem, 2.4vw, 1.35rem); color: var(--soft); max-width: 43rem; }
+.actions { display: flex; gap: .75rem; flex-wrap: wrap; margin-top: 1.75rem; align-items: center; }
+.btn { display: inline-flex; align-items: center; justify-content: center; min-height: 3rem; font: inherit; font-weight: 700; padding: .7rem 1.5rem; border-radius: 999px; border: 2px solid var(--brand); background: var(--brand); color: var(--brand-ink); text-decoration: none; cursor: pointer; transition: transform .15s, box-shadow .15s, filter .15s; }
+.btn:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 .6rem 1.2rem -.6rem var(--brand); }
+.btn.big { font-size: 1.15rem; padding: .85rem 1.9rem; }
 .btn.quiet { background: transparent; color: var(--brand); }
-.btn.small { padding: .45rem .9rem; font-size: 1rem; }
+.btn.quiet:hover { background: color-mix(in srgb, var(--brand) 9%, transparent); box-shadow: none; }
+.btn.small { min-height: 2.75rem; padding: .35rem 1.05rem; font-size: 1rem; }
 .btn:disabled { opacity: .6; cursor: default; }
-.already { margin-top: 1.25rem; font-size: 1rem; color: var(--soft); }
-.already a { font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .btn, .btn:hover { transition: none; transform: none; } }
+.works { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: center; align-items: center; list-style: none; margin: 2rem 0 0; padding: 0; font-size: 1rem; color: var(--soft); }
+.works a { display: inline-flex; align-items: center; min-height: 2.5rem; padding: .25rem .95rem; border-radius: 999px; background: var(--card); border: 1px solid var(--line); font-weight: 600; color: var(--ink); text-decoration: none; }
+.works a:hover { border-color: var(--brand); color: var(--brand); }
 .note { color: var(--soft); font-size: 1rem; }
 
-.stage { margin: 0 0 clamp(2rem, 5vw, 3rem); background: var(--card); border: 1px solid var(--line); border-radius: 1.5rem; padding: 1rem; box-shadow: 0 2rem 4rem -2rem rgb(31 81 53 / .4); text-align: left; }
+.stage { position: relative; margin: 0 0 clamp(2.5rem, 6vw, 4rem); background: var(--card); border: 1px solid var(--line); border-radius: 1.75rem; padding: 1rem; box-shadow: 0 2.5rem 5rem -2.5rem rgb(31 81 53 / .5), 0 0 0 .5rem color-mix(in srgb, var(--card) 45%, transparent); text-align: left; }
 .chapters { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
-.chapters button { font: inherit; font-size: .95rem; font-weight: 600; padding: .4rem .85rem; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--soft); cursor: pointer; }
+.chapters button { font: inherit; font-size: .95rem; font-weight: 600; min-height: 2.5rem; padding: .35rem .95rem; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--soft); cursor: pointer; }
 .chapters button[aria-current=true] { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
 .chapters #demo-play { margin-left: auto; color: var(--brand); border-color: var(--brand); min-width: 5.5rem; }
 .panes { display: grid; gap: 1rem; }
@@ -168,10 +252,11 @@ section { padding-block: clamp(3rem, 8vw, 5.5rem); }
 .stage.live .talk { flex: 1; min-height: 0; overflow: hidden; }
 .stage.live .pane { height: 24rem; }
 .stage.live .pane + .pane { height: auto; min-height: 34rem; }
-@media (min-width: 56rem) { .stage.live .pane, .stage.live .pane + .pane { height: 46rem; min-height: 0; } }
+@media (min-width: 56rem) { .stage.live .pane, .stage.live .pane + .pane { height: 42rem; min-height: 0; } }
 .talk p { margin: 0; padding: .65rem .95rem; border-radius: 1.1rem; max-width: 92%; font-size: .98rem; line-height: 1.45; flex-shrink: 0; }
 .talk .who { display: block; font-size: .75rem; font-weight: 700; color: var(--soft); }
-.talk .you { background: var(--tint); align-self: flex-end; border-bottom-right-radius: .3rem; }
+.talk .you { background: var(--brand); color: var(--brand-ink); align-self: flex-end; border-bottom-right-radius: .3rem; }
+.talk .you .who { color: inherit; opacity: .85; }
 .talk .app { background: var(--card); border: 1px solid var(--line); align-self: flex-start; border-bottom-left-radius: .3rem; }
 .made { padding: .9rem; display: grid; gap: .75rem; align-content: start; }
 .stage.live .made { flex: 1; min-height: 0; overflow: hidden; }
@@ -196,82 +281,107 @@ section { padding-block: clamp(3rem, 8vw, 5.5rem); }
 @media (prefers-reduced-motion: no-preference) {
   .stage.live [data-step] { animation: arrive .45s ease-out; }
   @keyframes arrive { from { opacity: 0; transform: translateY(.5rem); } }
+  .reveal { opacity: 0; transform: translateY(1.1rem); transition: opacity .6s ease-out, transform .6s ease-out; }
+  .reveal.in { opacity: 1; transform: none; }
 }
-.inside { list-style: none; margin: 0 0 clamp(2rem, 5vw, 3rem); padding: 0; display: grid; gap: 1.25rem 2rem; grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr)); }
-.inside strong { display: block; font-family: ui-rounded, system-ui, sans-serif; font-size: 1.15rem; }
+@media print { .reveal { opacity: 1; transform: none; } .masthead { position: static; } }
+.inside { list-style: none; margin: 0 0 clamp(2rem, 5vw, 3rem); padding: 0; display: grid; gap: 1.5rem 2rem; grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr)); }
+.inside svg { display: block; width: 2.75rem; height: 2.75rem; padding: .6rem; margin-bottom: .7rem; border-radius: .85rem; background: var(--tint); color: var(--brand); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.inside strong { display: block; font-family: ui-rounded, system-ui, sans-serif; font-size: 1.2rem; }
 .inside span { color: var(--soft); font-size: 1rem; }
 
-.facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); background: var(--line); border: 1px solid var(--line); border-radius: 1.25rem; overflow: hidden; }
-.facts li { background: var(--card); padding: 1.1rem 1.25rem; }
-.facts strong { display: block; font-family: ui-rounded, system-ui, sans-serif; font-size: 1.35rem; line-height: 1.2; }
+.facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); background: var(--line); border: 1px solid var(--line); border-radius: 1.5rem; overflow: hidden; box-shadow: var(--shadow); }
+.facts li { background: var(--card); padding: 1.35rem 1.5rem; }
+.facts strong { display: block; font-family: ui-rounded, system-ui, sans-serif; font-size: 1.5rem; line-height: 1.2; color: var(--brand); }
 .facts span { color: var(--soft); font-size: 1rem; }
 
 .band { background: var(--tint); }
-.deep { background: var(--deep); color: var(--deep-ink); }
+.deep { background: radial-gradient(40rem 22rem at 100% 0, rgb(242 165 65 / .14), transparent 70%), var(--deep); color: var(--deep-ink); --focus: #f2a541; }
 .deep .kicker { color: var(--leaf); }
 .deep .intro, .deep .cards p { color: var(--deep-soft); }
 .deep a { color: var(--leaf); }
-.deep .cards li { background: transparent; border-color: rgb(255 255 255 / .18); }
-.cards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); list-style: none; padding: 0; margin: 2rem 0 0; }
-.cards li { background: var(--card); border: 1px solid var(--line); border-radius: 1.1rem; padding: 1.35rem; }
+.deep .cards li { background: rgb(255 255 255 / .05); border-color: rgb(255 255 255 / .16); box-shadow: none; }
+.cards { display: grid; gap: 1.1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); list-style: none; padding: 0; margin: 2.25rem 0 0; }
+.cards li { background: var(--card); border: 1px solid var(--line); border-radius: 1.35rem; padding: 1.5rem; box-shadow: var(--shadow); }
 .cards p { margin: 0; color: var(--soft); font-size: 1rem; }
 .cards p + p { margin-top: .6rem; }
-.cards.two { grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); }
+.cards.two { grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); }
+.cards.four { grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); }
 .steps { counter-reset: step; }
 .steps li { counter-increment: step; }
-.steps h3::before { content: counter(step); display: grid; place-items: center; width: 2.2rem; height: 2.2rem; margin-bottom: .75rem; border-radius: 50%; background: var(--brand); color: var(--brand-ink); font-size: 1.05rem; }
-.say { font-style: italic; color: var(--ink) !important; }
-.say::before { content: "You say: "; font-style: normal; font-weight: 700; font-size: .85rem; color: var(--soft); display: block; }
-.letter { display: inline-grid; place-items: center; width: 2rem; height: 2rem; border-radius: .6rem; background: var(--brand); color: var(--brand-ink); font-weight: 800; margin-right: .5rem; font-size: 1rem; }
-.fit { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); margin-top: 2rem; }
-.fit > div { background: var(--card); border: 1px solid var(--line); border-radius: 1.1rem; padding: 1.35rem; }
-.fit ul { margin: .5rem 0 0; padding-left: 1.2rem; }
-.fit li { margin-bottom: .35rem; }
-.fit .no { border-style: dashed; }
+.steps h3::before { content: counter(step); display: grid; place-items: center; width: 2.75rem; height: 2.75rem; margin-bottom: .9rem; border-radius: 50%; background: var(--brand); color: var(--brand-ink); font-size: 1.25rem; box-shadow: 0 0 0 .35rem color-mix(in srgb, var(--leaf) 45%, transparent); }
+.say { color: var(--ink) !important; background: var(--tint); border-radius: 1.1rem 1.1rem 1.1rem .3rem; padding: .65rem .9rem; margin-block: .5rem .8rem !important; line-height: 1.45; }
+.band .say { background: var(--bg); }
+.say::before { content: "You say"; display: block; font-weight: 700; font-size: .75rem; letter-spacing: .05em; text-transform: uppercase; color: var(--soft); }
+.letter { display: grid; place-items: center; width: 2.5rem; height: 2.5rem; border-radius: .8rem; background: var(--brand); color: var(--brand-ink); font-weight: 800; margin-bottom: .8rem; font-size: 1.15rem; }
+.fit { display: grid; gap: 1.1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); margin-top: 1.1rem; }
+.fit > div { background: var(--card); border: 1px solid var(--line); border-radius: 1.35rem; padding: 1.5rem; }
+.fit ul { list-style: none; margin: .6rem 0 0; padding: 0; }
+.fit li { position: relative; padding-left: 1.9rem; margin-bottom: .5rem; }
+.fit li::before { content: "\\2713"; content: "\\2713" / ""; position: absolute; left: 0; top: .2em; display: grid; place-items: center; width: 1.3rem; height: 1.3rem; border-radius: 50%; background: var(--tint); color: var(--brand); font-size: .8rem; font-weight: 800; line-height: 1; }
+.fit .no { border-style: dashed; background: transparent; }
+.fit .no li::before { content: "\\2013"; content: "\\2013" / ""; background: transparent; border: 1px solid var(--soft); color: var(--soft); }
 
-.prices { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); margin-top: 2rem; max-width: 46rem; }
-.price { background: var(--card); border: 1px solid var(--line); border-radius: 1.25rem; padding: 1.5rem; }
-.price.best { border: 2px solid var(--brand); }
-.price h3 { color: var(--soft); }
-.price .big { font-size: 2.25rem; font-weight: 800; font-family: ui-rounded, system-ui, sans-serif; margin: 0; }
-.price ul { padding-left: 1.2rem; margin: .5rem 0 1rem; }
-.price li { margin-bottom: .3rem; }
+.prices { display: grid; gap: 1.1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); margin-top: 2.25rem; max-width: 52rem; align-items: start; }
+.price { background: var(--card); border: 1px solid var(--line); border-radius: 1.5rem; padding: 1.75rem; box-shadow: var(--shadow); }
+.price.best { border: 2px solid var(--brand); background: linear-gradient(180deg, color-mix(in srgb, var(--leaf) 12%, var(--card)), var(--card) 9rem); }
+.price h3 { color: var(--soft); text-transform: uppercase; letter-spacing: .08em; font-size: .95rem; }
+.price .big { font-size: 2.4rem; font-weight: 800; font-family: ui-rounded, system-ui, sans-serif; margin: 0; line-height: 1.2; }
+.price ul { list-style: none; padding: 0; margin: 1rem 0 1.1rem; }
+.price li { position: relative; padding-left: 1.9rem; margin-bottom: .5rem; }
+.price li::before { content: "\\2713"; content: "\\2713" / ""; position: absolute; left: 0; top: .2em; display: grid; place-items: center; width: 1.3rem; height: 1.3rem; border-radius: 50%; background: var(--tint); color: var(--brand); font-size: .8rem; font-weight: 800; line-height: 1; }
 .price p:last-child { margin: 0; color: var(--soft); font-size: 1rem; }
 
-.connect { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); margin-top: 2rem; }
-.connect > div { background: var(--card); border: 1px solid var(--line); border-radius: 1.1rem; padding: 1.35rem; }
-.connect ol { padding-left: 1.3rem; margin: 0 0 1rem; }
-.connect li { margin-bottom: .4rem; }
-.copy { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.tabs { display: flex; gap: .45rem; flex-wrap: wrap; justify-content: center; margin-top: 2rem; }
+.tabs button { font: inherit; font-weight: 700; min-height: 2.9rem; padding: .45rem 1.2rem; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+.tabs button:hover { border-color: var(--brand); }
+.tabs button[aria-selected=true] { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+.connect { display: grid; gap: 1.1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); margin-top: 2rem; }
+.connect > div { background: var(--card); border: 1px solid var(--line); border-radius: 1.35rem; padding: 1.5rem; box-shadow: var(--shadow); }
+.connect.tabbed { display: block; max-width: 42rem; margin: 1.1rem auto 0; }
+.connect.tabbed > div { padding: clamp(1.35rem, 4vw, 2.25rem); }
+.connect.tabbed h3 { font-size: 1.45rem; margin-bottom: .7em; }
+.connect ol { padding-left: 1.3rem; margin: 0 0 1.1rem; }
+.connect li { margin-bottom: .5rem; }
+.connect li::marker { font-weight: 800; color: var(--brand); }
+.connect p:last-child { margin-bottom: 0; }
+.copy { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-top: .35rem; }
 .copy [role=status] { font-size: 1rem; color: var(--soft); }
 code { background: var(--card); border: 1px solid var(--line); border-radius: .4rem; padding: .1rem .4rem; font-size: .95em; overflow-wrap: anywhere; }
+.connect code { background: var(--tint); padding: .3rem .6rem; }
 
-.faq { max-width: 46rem; margin-top: 1.5rem; }
-details { border-bottom: 1px solid var(--line); }
-summary { cursor: pointer; font-weight: 700; padding: 1rem 2rem 1rem 0; list-style: none; position: relative; font-family: ui-rounded, system-ui, sans-serif; font-size: 1.1rem; }
+.faq { max-width: 48rem; margin-top: 2rem; display: grid; gap: .6rem; }
+details { background: var(--card); border: 1px solid var(--line); border-radius: 1.1rem; padding-inline: 1.25rem; }
+details[open] { box-shadow: var(--shadow); }
+summary { cursor: pointer; font-weight: 700; padding: 1.05rem 2.25rem 1.05rem 0; list-style: none; position: relative; font-family: ui-rounded, system-ui, sans-serif; font-size: 1.12rem; }
 summary::-webkit-details-marker { display: none; }
-summary::after { content: "+"; position: absolute; right: .25rem; top: .8rem; font-size: 1.5rem; font-weight: 400; color: var(--brand); }
+summary::after { content: "+"; position: absolute; right: 0; top: .7rem; font-size: 1.6rem; font-weight: 400; color: var(--brand); }
 details[open] summary::after { content: "\\2212"; }
-details p { color: var(--soft); max-width: 40rem; }
+details p { color: var(--soft); max-width: 42rem; }
 
-form { display: grid; gap: .75rem; max-width: 30rem; }
-label { font-weight: 600; }
+form { display: grid; gap: .85rem; max-width: 30rem; }
+label { font-weight: 600; display: inline-block; margin-bottom: .25rem; }
 label span { font-weight: 400; color: var(--soft); }
-input, textarea { font: inherit; width: 100%; padding: .75rem .9rem; border-radius: .75rem; border: 1px solid var(--soft); background: var(--card); color: var(--ink); }
+input, textarea { font: inherit; width: 100%; padding: .8rem .95rem; border-radius: .85rem; border: 1px solid var(--soft); background: var(--card); color: var(--ink); }
 #invite-msg { min-height: 1.65em; margin: 0; }
 .invite { display: grid; gap: 2rem; align-items: start; }
 @media (min-width: 52rem) { .invite { grid-template-columns: 1fr 1fr; } }
 .deep input, .deep textarea { border-color: transparent; }
+.deep label span { color: var(--deep-soft); }
 .deep .btn { background: var(--leaf); border-color: var(--leaf); color: #1c2a1e; }
 .deep #invite-msg { color: var(--deep-soft); }
 
 .doc { max-width: 44rem; padding-block: 2rem 4rem; }
+.doc h1 { font-size: clamp(2rem, 5vw, 2.75rem); }
 .doc h2 { font-size: 1.3rem; margin-top: 2rem; }
 .doc li { margin-bottom: .4rem; }
 .draft { background: var(--tint); border: 1px solid var(--line); border-radius: .75rem; padding: .75rem 1rem; }
-footer { padding-block: 2.5rem; color: var(--soft); font-size: 1rem; }
-footer .wrap { display: flex; gap: 1rem 2rem; flex-wrap: wrap; justify-content: space-between; }
+footer { padding-block: 2.75rem; color: var(--soft); font-size: 1rem; border-top: 1px solid var(--line); }
+footer .wrap { display: flex; gap: 1rem 2rem; flex-wrap: wrap; justify-content: space-between; align-items: center; }
 footer p { margin: 0; }
+footer .logo { font-size: 1.1rem; margin: 0 0 .35rem; }
+footer .logo svg { width: 1.75rem; height: 1.75rem; }
+footer a { display: inline-flex; align-items: center; min-height: 2.75rem; }
 `;
 
 /**
@@ -386,36 +496,43 @@ ${analytics()}
 </head>
 <body>
 <a class="skip" href="#main">Skip to the main part</a>
-<div class="wrap">
-  <header class="top">
-    <a class="logo" href="/">${ICON_SVG.replace("<svg ", '<svg aria-hidden="true" ')}Grove</a>
-    <nav aria-label="Main">
-      <ul>
-        <li><a href="#how">How it works</a></li>
-        <li><a href="#make">What people make</a></li>
-        <li><a href="#move">Move in</a></li>
-        <li><a href="#others">For others</a></li>
-        <li><a href="#yours">It's yours</a></li>
-        <li><a href="#price">Price</a></li>
-        <li><a href="#connect">Add Grove</a></li>
-        <li><a href="/account">Sign in</a></li>${repo ? `
-        <li><a class="gh" href="${repo}" aria-label="Grove and MAPLE on GitHub">${GITHUB_SVG}</a></li>` : ""}
-      </ul>
-    </nav>
-  </header>
+<div class="masthead">
+  <div class="wrap">
+    <header class="top">
+      <a class="logo" href="/">${ICON_SVG.replace("<svg ", '<svg aria-hidden="true" ')}Grove</a>
+      <nav aria-label="Main">
+        <ul>
+          <li class="opt"><a href="#how">How it works</a></li>
+          <li class="opt"><a href="#make">What people make</a></li>
+          <li class="opt"><a href="#move">Move in</a></li>
+          <li class="opt"><a href="#yours">It's yours</a></li>
+          <li class="opt"><a href="#price">Price</a></li>
+          <li><a href="/account">Sign in</a></li>${repo ? `
+          <li class="opt"><a class="gh" href="${repo}" aria-label="Grove and MAPLE on GitHub">${GITHUB_SVG}</a></li>` : ""}
+          <li><a class="btn small" href="#connect">Start free</a></li>
+        </ul>
+      </nav>
+    </header>
+  </div>
 </div>
 
 <main id="main">
   <section class="wrap hero">
-    <p class="kicker">Websites and tools, made by asking</p>
-    <h1>Your website and the tools behind it, run from your AI assistant.</h1>
-    <p class="lede">Say what you need, or point Grove at the site you already pay for. You get a real website or app with its own database, pages and sign-in, made and changed by chatting with Claude, ChatGPT, Gemini, Grok or any AI assistant. Free to start, no code, and yours to take anywhere.</p>
+    <p class="badge"><span class="dot" aria-hidden="true"></span>Open to everyone. Free to start.</p>
+    <h1>Your website and the tools behind it, run from your <span class="hl">AI assistant.</span></h1>
+    <p class="lede">Say what you need, or point Grove at the site you already pay for. You get a real website or app with its own database, pages and sign-in, made and changed just by chatting. No code, and yours to take anywhere.</p>
     <div class="actions">
-      <a class="btn" href="#connect">Start free</a>
-      <a class="btn quiet" href="#move">Move a site here</a>
-      <a class="btn quiet" href="#how">See how it works</a>
+      <a class="btn big" href="#connect">Start free</a>
+      <a class="btn big quiet" href="#how">See how it works</a>
     </div>
-    <p class="already">Open to everyone. Add Grove to <a href="${claudeLink(connect)}">Claude</a>, <a href="#chatgpt">ChatGPT</a>, <a href="#gemini">Gemini</a>, <a href="#grok">Grok</a> or <a href="#other">any other assistant</a>.</p>
+    <ul class="works">
+      <li>Works with</li>
+      <li><a href="#claude">Claude</a></li>
+      <li><a href="#chatgpt">ChatGPT</a></li>
+      <li><a href="#gemini">Gemini</a></li>
+      <li><a href="#grok">Grok</a></li>
+      <li><a href="#other">any other assistant</a></li>
+    </ul>
   </section>
 
   <div class="wrap">
@@ -479,10 +596,10 @@ ${analytics()}
       <figcaption>An example of how it goes. The business and its numbers are made up.</figcaption>
     </figure>
     <ul class="inside">
-      <li><strong>A real database</strong><span>Proper Postgres, with as many linked tables as the job needs. Not a spreadsheet behind a chat.</span></li>
-      <li><strong>Its own tools</strong><span>Each app is an MCP server made for that one job, which any assistant that speaks MCP can use.</span></li>
-      <li><strong>Web pages</strong><span>A front page, a form, a list that fills itself from the database. Public, or only for the people you name.</span></li>
-      <li><strong>An API when you need one</strong><span>Web addresses other software can call, so your other tools can feed it.</span></li>
+      <li><svg aria-hidden="true" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg><strong>A real database</strong><span>Proper Postgres, with as many linked tables as the job needs. Not a spreadsheet behind a chat.</span></li>
+      <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16v11H10l-5 4v-4H4z"/><path d="M9 10.500h.01M12 10.500h.01M15 10.500h.01"/></svg><strong>Its own tools</strong><span>Each app is an MCP server made for that one job, which any assistant that speaks MCP can use.</span></li>
+      <li><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3.500" y="4" width="17" height="16" rx="2.500"/><path d="M3.500 9h17M8 13h8M8 16.500h5"/></svg><strong>Web pages</strong><span>A front page, a form, a list that fills itself from the database. Public, or only for the people you name.</span></li>
+      <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.500 6l-3 12"/></svg><strong>An API when you need one</strong><span>Web addresses other software can call, so your other tools can feed it.</span></li>
     </ul>
   </div>
 
@@ -506,7 +623,75 @@ ${analytics()}
     </ol>
   </section>
 
-  <section class="band" id="make">
+  <section class="band center" id="connect">
+    <div class="wrap">
+      <p class="kicker">Add Grove</p>
+      <h2>Add Grove to your assistant</h2>
+      <p class="intro">You do this once, and it takes about a minute. After that, you make and use your apps by chatting. Anyone can join, and it is free to start.</p>
+      <div class="tabs" id="assistant-tabs" role="tablist" aria-label="Which assistant do you use?" hidden></div>
+      <div class="connect">
+        <div id="claude" data-tab="Claude">
+          <h3>Claude</h3>
+          <ol>
+            <li>Press the button. Claude opens with Grove's name and address already filled in.</li>
+            <li>Press <strong>Add</strong>, then <strong>Connect</strong>.</li>
+            <li>Sign in with your email. A code arrives to confirm it is yours.</li>
+          </ol>
+          <p><a class="btn" href="${claudeLink(connect)}">Add Grove to Claude</a></p>
+          <p class="note">Works on every Claude plan, in the browser and in the apps.</p>
+        </div>
+        <div id="chatgpt" data-tab="ChatGPT">
+          <h3>ChatGPT</h3>
+          <ol>
+            <li>Copy Grove's address:
+              <div class="copy"><code>${connect}</code><button class="btn quiet small" type="button" data-copy="${connect}">Copy</button><span role="status" aria-live="polite"></span></div>
+            </li>
+            <li>In ChatGPT, open <strong>Settings</strong>, then <strong>Apps &amp; Connectors</strong>. Under <strong>Advanced settings</strong>, turn on <strong>Developer mode</strong>.</li>
+            <li>Press <strong>Create</strong>, name it Grove, paste the address, and sign in with your email.</li>
+          </ol>
+          <p><a class="btn" href="https://chatgpt.com/#settings/Connectors">Open ChatGPT's settings</a></p>
+          <p class="note">ChatGPT has no one-press way to add an app yet, and needs a paid ChatGPT plan for this.</p>
+        </div>
+        <div id="gemini" data-tab="Gemini">
+          <h3>Gemini</h3>
+          <ol>
+            <li>Copy Grove's address:
+              <div class="copy"><code>${connect}</code><button class="btn quiet small" type="button" data-copy="${connect}">Copy</button><span role="status" aria-live="polite"></span></div>
+            </li>
+            <li>At gemini.google.com, open <strong>Settings</strong>, then <strong>Connected apps</strong>, and choose <strong>Add a custom app</strong>.</li>
+            <li>Paste the address, press <strong>Next</strong>, and sign in with your email.</li>
+          </ol>
+          <p><a class="btn" href="https://gemini.google.com/">Open Gemini</a></p>
+          <p class="note">Google is opening this up in stages, starting with personal accounts in the US. Add it on the web; it then works in the phone app too.</p>
+        </div>
+        <div id="grok" data-tab="Grok">
+          <h3>Grok</h3>
+          <ol>
+            <li>Copy Grove's address:
+              <div class="copy"><code>${connect}</code><button class="btn quiet small" type="button" data-copy="${connect}">Copy</button><span role="status" aria-live="polite"></span></div>
+            </li>
+            <li>At grok.com, open <strong>Connectors</strong> and add a <strong>custom connector</strong>.</li>
+            <li>Name it Grove, paste the address, and sign in with your email.</li>
+          </ol>
+          <p><a class="btn" href="https://grok.com/connectors">Open Grok's connectors</a></p>
+        </div>
+        <div id="other" data-tab="Another assistant">
+          <h3>Any other assistant</h3>
+          <p>Grove works with any assistant or coding agent that can add a connector (an "MCP server") by its address: Meta Muse, Microsoft Copilot, Cursor, VS Code, Gemini CLI and more.</p>
+          <ol>
+            <li>Find where it adds a <strong>connector</strong>, <strong>custom app</strong> or <strong>MCP server</strong>.</li>
+            <li>Give it this address:
+              <div class="copy"><code>${connect}</code><button class="btn quiet small" type="button" data-copy="${connect}">Copy</button><span role="status" aria-live="polite"></span></div>
+            </li>
+            <li>When it asks, sign in with your email. A code arrives to confirm it is yours.</li>
+          </ol>
+          <p class="note">Working in a terminal? Ask Grove to "make me a CLI token" and use Grove's command line instead.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="make">
     <div class="wrap">
       <p class="kicker">What people make</p>
       <h2>The jobs nobody builds software for</h2>
@@ -542,11 +727,12 @@ ${analytics()}
     </div>
   </section>
 
-  <section class="wrap" id="move">
+  <section class="band" id="move">
+    <div class="wrap">
     <p class="kicker">Move in</p>
     <h2>Bring over what you already pay for, and stop paying for it</h2>
     <p class="intro">Paying every month for website hosting, a site builder, a pile of plugins or a tool charged per person? Tell your assistant where it lives now. Grove copies your content into an app you own, rebuilds the parts you actually use, and your old one keeps running until you're happy to switch. The first ${free} apps are free.</p>
-    <ul class="cards">
+    <ul class="cards four">
       <li><h3>A WordPress site</h3><p class="say">"Move my WordPress site over, posts and all."</p><p>Pages, posts, categories and images come across from WordPress's own export. Contact forms and galleries become part of the app, so there's no hosting plan, security plugin or plugin licence to renew.</p></li>
       <li><h3>A site-builder site</h3><p class="say">"Copy my Squarespace site and keep the same pages."</p><p>Wix, Squarespace and the like. Your pages, words and pictures, copied from your live site into pages you change by asking. No monthly builder plan.</p></li>
       <li><h3>Forms and sign-ups</h3><p class="say">"Rebuild my Typeform and tell me who signed up this week."</p><p>The questions become a page and the answers land in your own database. No caps on how many replies you get.</p></li>
@@ -576,6 +762,7 @@ ${analytics()}
         </ul>
       </div>
     </div>
+    </div>
   </section>
 
   <section class="wrap" id="others">
@@ -590,7 +777,8 @@ ${analytics()}
     </ul>
   </section>
 
-  <section class="wrap" id="get">
+  <section class="band" id="get">
+    <div class="wrap">
     <p class="kicker">What every app gets</p>
     <h2>Five parts, already put together</h2>
     <p class="intro">Grove apps are built on MAPLE, an open format named after its five parts. You get all of them from the first minute.</p>
@@ -602,13 +790,14 @@ ${analytics()}
       <li><h3><span class="letter">E</span>Email built in</h3><p>For sign-in codes and for those requests. Nothing to set up.</p></li>
       <li><h3><span class="letter">+</span>Trial copies and undo</h3><p>Grove adds these on top: every change is tried first, and anything shipped can be taken back.</p></li>
     </ul>
+    </div>
   </section>
 
   <section class="wrap" id="services">
     <p class="kicker">Built in</p>
     <h2>The awkward parts, already done</h2>
     <p class="intro">Normally these mean opening accounts, copying keys and reading manuals. In Grove your app just asks for them. Email, background work and file storage are real today. The rest can be built against now in a pretend mode that says clearly nothing real happened, and switch to the real thing as each arrives.</p>
-    <ul class="cards services">
+    <ul class="cards four services">
       ${SERVICE_LIST.map((x) => `<li><h3>${SERVICE_TITLES[x.name]}<span class="tag ${x.real ? "go" : "soon"}">${x.real ? "Ready" : "Pretend for now"}</span></h3><p>${x.what}</p></li>`).join("\n      ")}
     </ul>
   </section>
@@ -641,81 +830,15 @@ ${analytics()}
     </ul>
   </section>
 
-  <section class="band" id="connect">
+  <section class="band center" id="price">
     <div class="wrap">
-      <p class="kicker">Add Grove</p>
-      <h2>Add Grove to your assistant</h2>
-      <p class="intro">You do this once. After that, you make and use your apps by chatting. Anyone can join, and it is free to start.</p>
-      <div class="connect">
-        <div>
-          <h3>Claude</h3>
-          <ol>
-            <li>Press the button. Claude opens with Grove's name and address already filled in.</li>
-            <li>Press <strong>Add</strong>, then <strong>Connect</strong>.</li>
-            <li>Sign in with your email. A code arrives to confirm it is yours.</li>
-          </ol>
-          <p><a class="btn" href="${claudeLink(connect)}">Add Grove to Claude</a></p>
-          <p class="note">Works on every Claude plan, in the browser and in the apps.</p>
-        </div>
-        <div id="chatgpt">
-          <h3>ChatGPT</h3>
-          <ol>
-            <li>Copy Grove's address:
-              <div class="copy"><code>${connect}</code><button class="btn quiet small" type="button" data-copy="${connect}">Copy</button><span role="status" aria-live="polite"></span></div>
-            </li>
-            <li>In ChatGPT, open <strong>Settings</strong>, then <strong>Apps &amp; Connectors</strong>. Under <strong>Advanced settings</strong>, turn on <strong>Developer mode</strong>.</li>
-            <li>Press <strong>Create</strong>, name it Grove, paste the address, and sign in with your email.</li>
-          </ol>
-          <p><a class="btn" href="https://chatgpt.com/#settings/Connectors">Open ChatGPT's settings</a></p>
-          <p class="note">ChatGPT has no one-press way to add an app yet, and needs a paid ChatGPT plan for this.</p>
-        </div>
-        <div id="gemini">
-          <h3>Gemini</h3>
-          <ol>
-            <li>Copy Grove's address:
-              <div class="copy"><code>${connect}</code><button class="btn quiet small" type="button" data-copy="${connect}">Copy</button><span role="status" aria-live="polite"></span></div>
-            </li>
-            <li>At gemini.google.com, open <strong>Settings</strong>, then <strong>Connected apps</strong>, and choose <strong>Add a custom app</strong>.</li>
-            <li>Paste the address, press <strong>Next</strong>, and sign in with your email.</li>
-          </ol>
-          <p><a class="btn" href="https://gemini.google.com/">Open Gemini</a></p>
-          <p class="note">Google is opening this up in stages, starting with personal accounts in the US. Add it on the web; it then works in the phone app too.</p>
-        </div>
-        <div id="grok">
-          <h3>Grok</h3>
-          <ol>
-            <li>Copy Grove's address:
-              <div class="copy"><code>${connect}</code><button class="btn quiet small" type="button" data-copy="${connect}">Copy</button><span role="status" aria-live="polite"></span></div>
-            </li>
-            <li>At grok.com, open <strong>Connectors</strong> and add a <strong>custom connector</strong>.</li>
-            <li>Name it Grove, paste the address, and sign in with your email.</li>
-          </ol>
-          <p><a class="btn" href="https://grok.com/connectors">Open Grok's connectors</a></p>
-        </div>
-        <div id="other">
-          <h3>Any other assistant</h3>
-          <p>Grove works with any assistant or coding agent that can add a connector (an "MCP server") by its address: Meta Muse, Microsoft Copilot, Cursor, VS Code, Gemini CLI and more.</p>
-          <ol>
-            <li>Find where it adds a <strong>connector</strong>, <strong>custom app</strong> or <strong>MCP server</strong>.</li>
-            <li>Give it this address:
-              <div class="copy"><code>${connect}</code><button class="btn quiet small" type="button" data-copy="${connect}">Copy</button><span role="status" aria-live="polite"></span></div>
-            </li>
-            <li>When it asks, sign in with your email. A code arrives to confirm it is yours.</li>
-          </ol>
-          <p class="note">Working in a terminal? Ask Grove to "make me a CLI token" and use Grove's command line instead.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="wrap" id="price">
     <p class="kicker">Price</p>
     <h2>Free to start. Simple to grow.</h2>
     <p class="intro">Free isn't a trial: make real websites and apps, keep them running and share them, without a card. Plus is for when you want more of them, or want them to be your own brand.</p>
     <div class="prices">
       <div class="price">
         <h3>Free</h3>
-        <p class="big">£0</p>
+        <p class="big"><span data-zero>${paid?.price.match(/^[^\d\s]+/)?.[0] ?? "£"}0</span></p>
         <ul>
           <li>${free} websites and apps${freeMax > free ? `, and up to ${freeMax} just by asking` : ""}</li>
           <li>A real database, web pages, sign-in, email, background work and file storage in every one</li>
@@ -746,9 +869,10 @@ ${analytics()}
       </div>`}
     </div>
     <p class="note" style="margin-top:1.5rem">You also need an AI assistant that can connect to outside apps, such as Claude, ChatGPT, Gemini or Grok. That is separate from Grove.</p>
+    </div>
   </section>
 
-  <section class="band" id="faq">
+  <section class="center" id="faq">
     <div class="wrap">
       <p class="kicker">Questions</p>
       <h2>Things people ask</h2>
@@ -786,7 +910,7 @@ ${analytics()}
 
 <footer>
   <div class="wrap">
-    <p>Grove makes MAPLE apps. This site is one too.</p>
+    <div><p class="logo">${ICON_SVG.replace("<svg ", '<svg aria-hidden="true" ')}Grove</p><p>Grove makes MAPLE apps. This site is one too.</p></div>
     <p>${repo ? `<a href="${repo}">GitHub</a> · ` : ""}<a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/report">Report an app</a> · <a href="/account">Sign in</a></p>
   </div>
 </footer>

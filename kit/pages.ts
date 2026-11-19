@@ -4,7 +4,7 @@
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 
-export const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#1f5135"/><path fill="#f2a541" d="M32 8l4 10 7-4-2 11 9-3-4 9 8 2-11 7 2 6-11-3v13h-4V43l-11 3 2-6-11-7 8-2-4-9 9 3-2-11 7 4z"/></svg>`;
+export const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#fffdf7"/><rect x="1" y="1" width="62" height="62" rx="13" fill="none" stroke="#d8dfd9" stroke-width="2"/><path fill="#d80621" d="M32 8l4 10 7-4-2 11 9-3-4 9 8 2-11 7 2 6-11-3v13h-4V43l-11 3 2-6-11-7 8-2-4-9 9 3-2-11 7 4z"/></svg>`;
 
 const shell = (title: string, authUrl: string, body: string, script: string) => `<!doctype html>
 <html lang="en">
